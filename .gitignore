@@ -1,0 +1,46 @@
+# Secrets & credentials
+.env
+.secrets/
+*.age
+*.key
+
+# Runtime data
+*.db
+*.db-shm
+*.db-wal
+session-index.json
+watermarks/
+messages.jsonl
+
+# Node
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+venv/
+*.egg-info/
+
+# ONNX models (too large for git)
+onnx-models/
+
+# Backups
+*.bak
+*.bak.*
+memory-backup-*/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache files
+*_cache.json
+status.json
+tasks.json
+alerts.json
+task-scan-state.json
+
+# Logs
+*.log
+logs/
