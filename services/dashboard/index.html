@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <title>OpenClaw Agent Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f0f23;
+            --card: #10102a;
+            --border: #333366;
+            --text: #ccccff;
+            --text-muted: #6666aa;
+            --accent: #00ccff;
+            --green: #00ff41;
+            --yellow: #ffcc00;
+            --red: #ff0040;
+            --purple: #cc44ff;
+            --pixel: 'Press Start 2P', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--pixel);
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.8;
+            padding: 16px;
+            font-size: 10px;
+            image-rendering: pixelated;
+        }
+
+        /* Scanline overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,0,0,0.08) 2px,
+                rgba(0,0,0,0.08) 4px
+            );
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        /* Pixel border mixin via box-shadow */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 12px 16px;
+            border: 3px solid var(--accent);
+            background: var(--card);
+            box-shadow:
+                6px 6px 0 #000,
+                inset 0 0 20px rgba(0,204,255,0.05);
+        }
+
+        .header h1 {
+            font-size: 14px;
+            font-weight: 400;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--accent);
+            text-shadow: 0 0 10px rgba(0,204,255,0.5);
+            letter-spacing: 2px;
+        }
+
+        .header h1::before { content: ">> "; color: var(--green); }
+
+        .meta {
+            color: var(--text-muted);
+            font-size: 8px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            box-shadow: 4px 4px 0 #000;
+            position: relative;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--border), var(--accent), var(--border));
+            opacity: 0.5;
+        }
+
+        .card h2 {
+            font-family: var(--pixel);
+            font-size: 9px;
+            font-weight: 400;
+            text-transform: uppercase;
+            color: var(--yellow);
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+            text-shadow: 0 0 8px rgba(255,204,0,0.3);
+            padding-bottom: 6px;
+            border-bottom: 1px dashed var(--border);
+        }
+
+        .agent {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            margin-bottom: 6px;
+        }
+
+        .agent:last-child { margin-bottom: 0; }
+
+        .agent-icon {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            border: 2px solid var(--border);
+        }
+
+        .agent-icon.main { border-color: #ff6688; background: rgba(255,102,136,0.1); }
+        .agent-icon.luna { border-color: #44aaff; background: rgba(68,170,255,0.1); }
+        .agent-icon.nova { border-color: #ffaa44; background: rgba(255,170,68,0.1); }
+        .agent-icon.default { border-color: var(--purple); background: rgba(204,68,255,0.1); }
+
+        .agent-info { flex: 1; }
+        .agent-name { font-size: 9px; color: var(--text); }
+        .agent-model { font-size: 7px; color: var(--text-muted); margin-top: 2px; }
+
+        .agent-sessions {
+            font-size: 14px;
+            color: var(--accent);
+            text-shadow: 0 0 6px rgba(0,204,255,0.4);
+        }
+
+        .binding {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            margin-bottom: 4px;
+            font-size: 8px;
+        }
+
+        .binding:last-child { margin-bottom: 0; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            font-family: var(--pixel);
+            font-size: 7px;
+            text-transform: uppercase;
+            border: 1px solid;
+            letter-spacing: 0.5px;
+        }
+
+        .badge.signal { border-color: #3a76f0; color: #3a76f0; background: rgba(58,118,240,0.1); }
+        .badge.discord { border-color: #5865f2; color: #5865f2; background: rgba(88,101,242,0.1); }
+        .badge.telegram { border-color: #0088cc; color: #0088cc; background: rgba(0,136,204,0.1); }
+        .badge.whatsapp { border-color: #25d366; color: #25d366; background: rgba(37,211,102,0.1); }
+
+        .session {
+            padding: 6px 8px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            margin-bottom: 4px;
+            font-size: 8px;
+        }
+
+        .session:last-child { margin-bottom: 0; }
+
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+        }
+
+        .session-key {
+            font-family: var(--pixel);
+            font-size: 7px;
+            color: var(--accent);
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .session-age { color: var(--text-muted); font-size: 7px; }
+
+        .session-meta {
+            display: flex;
+            gap: 12px;
+            color: var(--text-muted);
+            font-size: 7px;
+        }
+
+        .progress {
+            height: 6px;
+            background: #1a1a3a;
+            margin-top: 4px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .progress-bar {
+            height: 100%;
+            transition: width 0.3s;
+        }
+
+        .progress-bar.low { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .progress-bar.medium { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+        .progress-bar.high { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+        .cron-job {
+            padding: 6px 8px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            margin-bottom: 4px;
+        }
+
+        .cron-job:last-child { margin-bottom: 0; }
+
+        .cron-name { font-size: 8px; margin-bottom: 3px; }
+        .cron-schedule { font-size: 7px; color: var(--text-muted); font-family: var(--pixel); }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            display: inline-block;
+            border: 1px solid;
+        }
+
+        .status-dot.active { background: var(--green); border-color: var(--green); box-shadow: 0 0 4px var(--green); }
+        .status-dot.inactive { background: var(--text-muted); border-color: var(--text-muted); }
+
+        .empty {
+            color: var(--text-muted);
+            padding: 10px;
+            text-align: center;
+            font-size: 8px;
+        }
+
+        .refresh-btn {
+            font-family: var(--pixel);
+            background: transparent;
+            color: var(--green);
+            border: 2px solid var(--green);
+            padding: 6px 14px;
+            cursor: pointer;
+            font-size: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.1s;
+        }
+
+        .refresh-btn:hover {
+            background: var(--green);
+            color: var(--bg);
+            box-shadow: 0 0 10px rgba(0,255,65,0.4);
+        }
+
+        .full-width { grid-column: 1 / -1; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8px;
+        }
+
+        th, td {
+            padding: 6px 8px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            color: var(--yellow);
+            font-weight: 400;
+            font-size: 7px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        tr:last-child td { border-bottom: none; }
+
+        .mono { font-family: var(--pixel); font-size: 7px; }
+
+        /* NES-style scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg); border: 1px solid var(--border); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border: 1px solid var(--text-muted); }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+        /* Blinking cursor for loading states */
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        .empty::after {
+            content: '_';
+            animation: blink 1s step-end infinite;
+        }
+
+        /* Glow animation for active elements */
+        @keyframes glow-pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        /* NES stat block style */
+        .stat-block {
+            background: rgba(255,255,255,0.02);
+            border: 2px solid var(--border);
+            padding: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 18px;
+            line-height: 1.2;
+            text-shadow: 0 0 8px currentColor;
+        }
+        .stat-label {
+            font-size: 6px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 4px;
+        }
+
+        /* Agent console NES style */
+        select, input[type="text"] {
+            font-family: var(--pixel) !important;
+            font-size: 8px !important;
+            background: var(--bg) !important;
+            color: var(--text) !important;
+            border: 2px solid var(--border) !important;
+            border-radius: 0 !important;
+            padding: 8px !important;
+        }
+        select:focus, input[type="text"]:focus {
+            border-color: var(--accent) !important;
+            outline: none;
+            box-shadow: 0 0 8px rgba(0,204,255,0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>OPENCLAW DASHBOARD</h1>
+        <div>
+            <span class="meta" id="lastUpdate">LOADING...</span>
+            <button class="refresh-btn" onclick="loadStatus()">REFRESH</button>
+        </div>
+    </div>
+
+    <div class="card full-width">
+        <h2>// Agent Console</h2>
+        <div id="chatHistory" style="max-height: 300px; overflow-y: auto; margin-bottom: 10px; padding: 10px; background: var(--bg); border: 1px solid var(--border); display: none;"></div>
+        <div style="display: flex; gap: 8px; align-items: flex-end;">
+            <select id="agentSelect">
+                <option value="main">TALKIE</option>
+                <option value="luna">LUNA</option>
+                <option value="nova">NOVA</option>
+            </select>
+            <input type="text" id="messageInput" placeholder="> Enter command..."
+                style="flex: 1;"
+                onkeydown="if(event.key==='Enter' && !event.shiftKey) sendMessage()">
+            <button onclick="sendMessage()" id="sendBtn" class="refresh-btn" style="border-color: var(--accent); color: var(--accent);">SEND</button>
+            <button onclick="clearChat()" class="refresh-btn" style="border-color: var(--text-muted); color: var(--text-muted);">CLR</button>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>// Agents</h2>
+            <div id="agents"><div class="empty">Loading</div></div>
+        </div>
+
+        <div class="card">
+            <h2>// Channel Bindings</h2>
+            <div id="bindings"><div class="empty">Loading</div></div>
+        </div>
+
+        <div class="card">
+            <h2>// Channels</h2>
+            <div id="channels"><div class="empty">Loading</div></div>
+        </div>
+
+        <div class="card">
+            <h2>// Cron Jobs</h2>
+            <div id="cron"><div class="empty">Loading</div></div>
+        </div>
+    </div>
+
+    <div class="card full-width">
+        <h2>// Agent Health</h2>
+        <div id="health"><div class="empty">Loading</div></div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>// Server Resources</h2>
+            <div id="systemStats"><div class="empty">Loading</div></div>
+        </div>
+
+        <div class="card">
+            <h2>!! Ops Alerts</h2>
+            <div id="opsAlerts" style="max-height: 350px; overflow-y: auto;"><div class="empty">Loading</div></div>
+        </div>
+    </div>
+
+    <div class="card full-width">
+        <h2>// Timeline -- What's Happening</h2>
+        <div id="timeline"><div class="empty">Loading</div></div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>// Active Subagents</h2>
+            <div id="subagents"><div class="empty">Loading</div></div>
+        </div>
+
+        <div class="card">
+            <h2>// Discord Activity</h2>
+            <div id="discord"><div class="empty">Loading</div></div>
+        </div>
+
+        <div class="card">
+            <h2>// Notion Activity</h2>
+            <div id="notion"><div class="empty">Loading</div></div>
+        </div>
+
+        <div class="card">
+            <h2>// Task Queue</h2>
+            <div id="tasks"><div class="empty">Loading</div></div>
+        </div>
+    </div>
+
+    <div class="card full-width">
+        <h2>// Memory System</h2>
+        <div id="memory"><div class="empty">Memory API not connected</div></div>
+    </div>
+
+    <div class="card full-width">
+        <h2>// Active Sessions</h2>
+        <div id="sessions"><div class="empty">Loading</div></div>
+    </div>
+
+    <script>
+        const ICONS = { main: '>', luna: '*', nova: '+' };
+        const NAMES = { main: 'Talkie (main)', luna: 'Luna', nova: 'Nova' };
+
+        function timeAgo(dateStr) {
+            if (!dateStr) return 'unknown';
+            const seconds = Math.floor((Date.now() - new Date(dateStr)) / 1000);
+            if (seconds < 60) return 'just now';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+            if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+            return Math.floor(seconds / 86400) + 'd ago';
+        }
+
+        function renderAgents(agents, sessions) {
+            if (!agents?.length) return '<div class="empty">No agents configured</div>';
+
+            const sessionCounts = {};
+            (sessions || []).forEach(s => {
+                const match = s.key?.match(/^agent:(\w+):/);
+                if (match) {
+                    sessionCounts[match[1]] = (sessionCounts[match[1]] || 0) + 1;
+                }
+            });
+
+            agents.sort((a, b) => a.id === 'main' ? -1 : b.id === 'main' ? 1 : 0);
+            return agents.map(a => `
+                <div class="agent">
+                    <div class="agent-icon ${a.id}">${ICONS[a.id] || '?'}</div>
+                    <div class="agent-info">
+                        <div class="agent-name">${NAMES[a.id] || a.id}</div>
+                        <div class="agent-model">${a.model || 'default'}</div>
+                    </div>
+                    <div class="agent-sessions" title="Active sessions">${sessionCounts[a.id] || 0}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderBindings(bindings) {
+            if (!bindings?.length) return '<div class="empty">No bindings configured</div>';
+
+            return bindings.map(b => `
+                <div class="binding">
+                    <span class="badge ${b.channel}">${b.channel}</span>
+                    ${b.accountId ? `<span class="mono">${b.accountId}</span>` : ''}
+                    <span style="color: var(--text-muted)">=></span>
+                    <strong>${b.agentId}</strong>
+                </div>
+            `).join('');
+        }
+
+        function renderChannels(channels) {
+            if (!channels?.length) return '<div class="empty">No channels configured</div>';
+
+            return channels.map(c => `
+                <div class="binding">
+                    <span class="status-dot ${c.enabled ? 'active' : 'inactive'}"></span>
+                    <span class="badge ${c.name}">${NAMES[c.name] || c.name}</span>
+                    ${c.accounts?.length ? `<span class="mono" style="color: var(--text-muted)">${c.accounts.join(', ')}</span>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function renderSessions(sessions) {
+            if (!sessions?.length) return '<div class="empty">No active sessions</div>';
+
+            const sorted = [...sessions].sort((a, b) =>
+                new Date(b.lastActivity || 0) - new Date(a.lastActivity || 0)
+            );
+
+            return `<div style="max-height: 400px; overflow-y: auto;"><table>
+                <thead>
+                    <tr>
+                        <th>Session</th>
+                        <th>Agent</th>
+                        <th>Type</th>
+                        <th>Last Activity</th>
+                        <th>Context</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${sorted.map(s => {
+                        const match = s.key?.match(/^agent:(\w+):(.+)/);
+                        const agent = match?.[1] || 'unknown';
+                        const rest = match?.[2] || s.key;
+                        const pct = s.contextPercent || 0;
+                        const barClass = pct > 80 ? 'high' : pct > 50 ? 'medium' : 'low';
+
+                        return `<tr>
+                            <td class="mono session-key" title="${s.key}">${rest}</td>
+                            <td><strong>${agent}</strong></td>
+                            <td>${s.kind || '-'}</td>
+                            <td>${timeAgo(s.lastActivity)}</td>
+                            <td style="width: 120px">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span>${pct}%</span>
+                                    <div class="progress" style="flex: 1">
+                                        <div class="progress-bar ${barClass}" style="width: ${pct}%"></div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table></div>`;
+        }
+
+        function renderCron(jobs) {
+            if (!jobs?.length) return '<div class="empty">No cron jobs configured</div>';
+
+            return jobs.map(j => `
+                <div class="cron-job">
+                    <div class="cron-name">
+                        <span class="status-dot ${j.enabled !== false ? 'active' : 'inactive'}"></span>
+                        ${j.name || j.id || 'Unnamed job'}
+                        <span style="font-size:7px; padding:1px 4px; border:1px solid ${j.source === 'system' ? '#14b8a6' : '#f6921e'}; margin-left:6px; color:${j.source === 'system' ? '#14b8a6' : '#f6921e'};">${j.source || 'openclaw'}</span>
+                    </div>
+                    <div class="cron-schedule">${j.schedule?.expr || j.schedule?.kind || 'unknown schedule'}</div>
+                    ${j.description ? `<div style="font-size:7px; color:var(--text-muted); margin-top:2px;">${j.description}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function renderHealth(health) {
+            if (!health || !Object.keys(health).length) return '<div class="empty">No health data</div>';
+
+            return `<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+                ${Object.entries(health).sort(([a], [b]) => a === 'main' ? -1 : b === 'main' ? 1 : 0).map(([agent, h]) => `
+                    <div class="agent" style="flex-direction: column; align-items: flex-start; gap: 6px;">
+                        <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+                            <div class="agent-icon ${agent}" style="width: 24px; height: 24px; font-size: 12px;">${ICONS[agent] || '?'}</div>
+                            <div class="agent-name">${NAMES[agent] || agent}</div>
+                            <div style="margin-left: auto;">
+                                <span class="badge" style="border-color: ${h.status === 'healthy' ? 'var(--green)' : h.status === 'warning' ? 'var(--yellow)' : 'var(--red)'}; color: ${h.status === 'healthy' ? 'var(--green)' : h.status === 'warning' ? 'var(--yellow)' : 'var(--red)'};">
+                                    ${h.status}
+                                </span>
+                            </div>
+                        </div>
+                        <div style="font-size: 7px; color: var(--text-muted); width: 100%;">
+                            <div>Sessions: ${h.session_count || 0}</div>
+                            <div>Last active: ${timeAgo(h.last_activity)}</div>
+                            ${h.error_count > 0 ? `<div style="color: var(--red);">Errors: ${h.error_count}</div>` : ''}
+                        </div>
+                        ${h.recent_errors?.length ? `
+                            <details style="font-size: 7px; width: 100%;">
+                                <summary style="cursor: pointer; color: var(--red);">View errors</summary>
+                                <pre style="margin-top: 4px; padding: 6px; background: var(--bg); border: 1px solid var(--border); overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-family: var(--pixel); font-size: 6px;">${h.recent_errors.slice(0,3).join('
+')}</pre>
+                            </details>
+                        ` : ''}
+                    </div>
+                `).join('')}
+            </div>`;
+        }
+
+        function renderActivity(activities) {
+            if (!activities?.length) return '<div class="empty">No recent activity</div>';
+
+            return `<div style="max-height: 400px; overflow-y: auto;">
+                ${activities.slice(0, 20).map(a => `
+                    <div class="session" style="display: flex; gap: 10px; align-items: flex-start;">
+                        <div style="min-width: 60px; font-size: 7px; color: var(--text-muted);">${timeAgo(a.timestamp)}</div>
+                        <div class="agent-icon ${a.agent}" style="width: 20px; height: 20px; font-size: 10px; flex-shrink: 0;">${ICONS[a.agent] || '?'}</div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-size: 7px; color: var(--text-muted); margin-bottom: 2px;">
+                                <strong>${NAMES[a.agent] || a.agent}</strong> // ${a.session}
+                            </div>
+                            <div style="font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${a.summary || 'Activity'}</div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>`;
+        }
+
+        function renderTimeline(timeline) {
+            if (!timeline?.length) return '<div class="empty">No recent activity</div>';
+
+            const sourceColors = {
+                agent: 'var(--accent)',
+                discord: '#5865f2',
+                notion: 'var(--yellow)',
+                subagent: 'var(--purple)'
+            };
+
+            return `<div style="max-height: 350px; overflow-y: auto;">
+                ${timeline.map(t => {
+                    const url = t.url || null;
+                    const wrapper = url ? `<a href="${url}" target="_blank" style="text-decoration: none; color: inherit; display: block;">` : '';
+                    const wrapperEnd = url ? '</a>' : '';
+
+                    return `${wrapper}<div class="session" style="display: flex; gap: 10px; align-items: flex-start; border-left: 3px solid ${sourceColors[t.source] || 'var(--border)'}; cursor: ${url ? 'pointer' : 'default'};">
+                        <div style="min-width: 16px; font-size: 12px;">${t.icon || '>'}</div>
+                        <div style="min-width: 60px; font-size: 7px; color: var(--text-muted);">${timeAgo(t.timestamp)}</div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-size: 7px; color: var(--text-muted); margin-bottom: 2px;">
+                                <span class="badge" style="border-color: ${sourceColors[t.source] || 'var(--border)'}; color: ${sourceColors[t.source] || 'var(--text-muted)'}; font-size: 6px;">${t.source}</span>
+                                ${t.agent ? `<strong style="margin-left: 6px;">${t.agent}</strong>` : ''}
+                                ${t.channel ? `<span style="margin-left: 6px;">#${t.channel}</span>` : ''}
+                            </div>
+                            <div style="font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                ${t.title || t.action || 'Activity'}
+                            </div>
+                        </div>
+                        ${t.status ? `<span class="badge" style="border-color: ${t.status === 'completed' ? 'var(--green)' : t.status === 'running' ? 'var(--yellow)' : 'var(--text-muted)'}; color: ${t.status === 'completed' ? 'var(--green)' : t.status === 'running' ? 'var(--yellow)' : 'var(--text-muted)'};">${t.status}</span>` : ''}
+                        ${url ? '<span style="color: var(--text-muted);">-></span>' : ''}
+                    </div>${wrapperEnd}`;
+                }).join('')}
+            </div>`;
+        }
+
+        function renderSubagents(subagents) {
+            if (!subagents?.length) return '<div class="empty">No active subagents</div>';
+
+            return subagents.map(s => `
+                <div class="session">
+                    <div class="session-header">
+                        <span style="display: flex; align-items: center; gap: 6px;">
+                            <span class="status-dot ${s.status === 'running' ? 'active' : 'inactive'}"></span>
+                            <strong>${NAMES[s.agent] || s.agent}</strong>
+                        </span>
+                        <span class="session-age">${timeAgo(s.last_activity)}</span>
+                    </div>
+                    <div style="font-size: 7px; color: var(--text-muted); margin-top: 3px;">${s.task}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderDiscordActivity(activities) {
+            if (!activities?.length) return '<div class="empty">No recent Discord activity</div>';
+
+            return `<div style="max-height: 250px; overflow-y: auto;">
+                ${activities.map(a => {
+                    const channelPath = a.guildId && a.channelId ? `${a.guildId}/${a.channelId}` : (a.channelId || '');
+                    const url = channelPath ? `discord://discord.com/channels/${channelPath}` : null;
+
+                    return `<a href="${url || '#'}" target="_blank" style="text-decoration: none; color: inherit; ${!url ? 'pointer-events: none;' : ''}">
+                        <div class="binding" style="cursor: ${url ? 'pointer' : 'default'}; flex-direction: column; align-items: flex-start; gap: 3px;">
+                            <div style="display: flex; width: 100%; align-items: center;">
+                                <span style="font-size: 8px;">#${a.channel || 'channel'}</span>
+                                <span style="margin-left: auto; font-size: 7px; color: var(--text-muted);">${timeAgo(a.timestamp)}</span>
+                                ${url ? '<span style="color: var(--text-muted);">-></span>' : ''}
+                            </div>
+                            ${a.preview ? `<div style="font-size: 7px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%;">${a.preview}</div>` : ''}
+                        </div>
+                    </a>`;
+                }).join('')}
+            </div>`;
+        }
+
+        function renderNotionActivity(activities) {
+            if (!activities?.length) return '<div class="empty">No recent Notion activity</div>';
+
+            return `<div style="max-height: 250px; overflow-y: auto;">
+                ${activities.map(a => {
+                    const pageId = (a.id || '').replace(/-/g, '');
+                    const url = pageId ? `notion://${pageId}` : null;
+                    const webUrl = pageId ? `https://notion.so/${pageId}` : null;
+
+                    return `<div class="binding" style="cursor: ${url ? 'pointer' : 'default'};" onclick="if('${url}') { window.location='${url}'; setTimeout(() => window.open('${webUrl}', '_blank'), 500); }">
+                            <span style="font-size: 8px;">${a.title || 'Untitled'}</span>
+                            <span class="badge" style="margin-left: auto;">${a.type || 'page'}</span>
+                            <span style="font-size: 7px; color: var(--text-muted);">${timeAgo(a.timestamp)}</span>
+                            ${url ? '<span style="color: var(--text-muted);">-></span>' : ''}
+                        </div>`;
+                }).join('')}
+            </div>`;
+        }
+
+        function renderTasks(tasks) {
+            const pending = tasks?.pending || [];
+            const inProgress = tasks?.in_progress || [];
+            const completed = tasks?.completed || [];
+
+            if (!pending.length && !inProgress.length && !completed.length) {
+                return '<div class="empty">No tasks tracked</div>';
+            }
+
+            let html = '';
+
+            if (inProgress.length) {
+                html += `<div style="margin-bottom: 10px;">
+                    <div style="font-size: 7px; color: var(--yellow); margin-bottom: 4px; text-transform: uppercase;">In Progress (${inProgress.length})</div>
+                    ${inProgress.map(t => `
+                        <div class="binding" style="border-left: 3px solid var(--yellow);">
+                            <span class="status-dot" style="background: var(--yellow); border-color: var(--yellow); box-shadow: 0 0 4px var(--yellow);"></span>
+                            <span>${t.title || t}</span>
+                            ${t.agent ? `<span class="badge" style="margin-left: auto;">${t.agent}</span>` : ''}
+                        </div>
+                    `).join('')}
+                </div>`;
+            }
+
+            if (pending.length) {
+                html += `<div style="margin-bottom: 10px;">
+                    <div style="font-size: 7px; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Pending (${pending.length})</div>
+                    ${pending.slice(0, 5).map(t => `
+                        <div class="binding">
+                            <span class="status-dot inactive"></span>
+                            <span>${t.title || t}</span>
+                        </div>
+                    `).join('')}
+                    ${pending.length > 5 ? `<div style="font-size: 7px; color: var(--text-muted); padding: 4px 8px;">+${pending.length - 5} more</div>` : ''}
+                </div>`;
+            }
+
+            if (completed.length) {
+                html += `<details>
+                    <summary style="font-size: 7px; color: var(--green); cursor: pointer; margin-bottom: 4px;">Completed (${completed.length})</summary>
+                    ${completed.slice(0, 5).map(t => `
+                        <div class="binding" style="opacity: 0.5;">
+                            <span class="status-dot active"></span>
+                            <span style="text-decoration: line-through;">${t.title || t}</span>
+                        </div>
+                    `).join('')}
+                </details>`;
+            }
+
+            return html || '<div class="empty">No tasks</div>';
+        }
+
+        function renderMemory(mem) {
+            if (!mem || mem.error) return `<div class="empty">${mem?.error || 'Memory API not connected'}</div>`;
+
+            const s = mem.stats || {};
+            const byType = s.by_type || {};
+            const total = s.total || 0;
+            const avgConf = (s.avg_confidence || 0).toFixed(2);
+            const high = s.high_confidence || 0;
+            const decaying = s.decaying || 0;
+            const archived = s.archived || 0;
+            const pinned = s.pinned || 0;
+            const conflicts = s.conflicts_unresolved || 0;
+            const promoted = s.promoted_last_24h || 0;
+            const reinforced = s.reinforced_last_24h || 0;
+            const extracted = s.extractions_last_24h || 0;
+            const dbSize = s.db_size_mb ? s.db_size_mb.toFixed(1) + ' MB' : '--';
+
+            const isHealthy = total > 100 && parseFloat(avgConf) > 0.4 && conflicts === 0;
+            const isGrowing = total > 50 && parseFloat(avgConf) > 0.3;
+            const healthColor = isHealthy ? 'var(--green)' : isGrowing ? 'var(--yellow)' : 'var(--red)';
+            const healthLabel = isHealthy ? 'OK' : isGrowing ? 'GROW' : 'NEW';
+
+            // Session states
+            const ss = mem.session_states || [];
+
+            // Services
+            const svc = mem.services || {};
+            const uptimeH = svc.agent_services_uptime ? Math.floor(svc.agent_services_uptime / 3600) + 'h ' + Math.floor((svc.agent_services_uptime % 3600) / 60) + 'm' : '--';
+
+            return `
+                <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 12px;">
+                    <div class="stat-block">
+                        <div class="stat-value" style="color: var(--accent);">${total}</div>
+                        <div class="stat-label">Total Memories</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-value" style="color: var(--green);">${high}</div>
+                        <div class="stat-label">High Conf</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-value" style="color: var(--yellow);">${decaying}</div>
+                        <div class="stat-label">Decaying</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-value" style="color: var(--purple);">${pinned}</div>
+                        <div class="stat-label">Pinned</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-value" style="color: ${healthColor};">${avgConf}</div>
+                        <div class="stat-label">Avg Conf</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-value" style="color: var(--text-muted);">${archived}</div>
+                        <div class="stat-label">Archived</div>
+                    </div>
+                </div>
+
+                <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px;">
+                    <div style="background: rgba(255,255,255,0.02); border: 2px solid var(--border); padding: 8px;">
+                        <div style="font-size: 7px; color: var(--yellow); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 1px;">By Type</div>
+                        ${Object.entries(byType).map(([type, count]) => {
+                            const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                            const colors = { semantic: 'var(--accent)', episodic: 'var(--green)', procedural: 'var(--yellow)' };
+                            return `<div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                                <span style="min-width: 70px; font-size: 7px;">${type}</span>
+                                <div class="progress" style="flex: 1; height: 6px;">
+                                    <div style="width: ${pct}%; height: 100%; background: ${colors[type] || 'var(--text-muted)'}; box-shadow: 0 0 4px ${colors[type] || 'var(--text-muted)'};"></div>
+                                </div>
+                                <span style="min-width: 50px; font-size: 7px; text-align: right; color: var(--text-muted);">${count} (${pct}%)</span>
+                            </div>`;
+                        }).join('')}
+                    </div>
+
+                    <div style="background: rgba(255,255,255,0.02); border: 2px solid var(--border); padding: 8px;">
+                        <div style="font-size: 7px; color: var(--yellow); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 1px;">Last 24h</div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 8px;">
+                                <span>Extractions</span>
+                                <span style="color: var(--accent);">${extracted}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 8px;">
+                                <span>Reinforced</span>
+                                <span style="color: var(--green);">${reinforced}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 8px;">
+                                <span>Promoted</span>
+                                <span style="color: var(--purple);">${promoted}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 8px;">
+                                <span>Conflicts</span>
+                                <span style="color: ${conflicts > 0 ? 'var(--red)' : 'var(--text-muted)'};">${conflicts}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(255,255,255,0.02); border: 2px solid var(--border); padding: 8px;">
+                        <div style="font-size: 7px; color: var(--yellow); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 1px;">System</div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 8px;">
+                                <span>DB Size</span>
+                                <span>${dbSize}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 8px;">
+                                <span>Health</span>
+                                <span class="badge" style="border-color: ${healthColor}; color: ${healthColor};">${healthLabel}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 8px;">
+                                <span>API Uptime</span>
+                                <span style="color: var(--text-muted);">${uptimeH}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 8px;">
+                                <span>RSS</span>
+                                <span style="color: var(--text-muted);">${svc.memory_usage_mb || '--'} MB</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin-top: 8px;">
+                    <div style="background: rgba(255,255,255,0.02); border: 2px solid var(--border); padding: 8px;">
+                        <div style="font-size: 7px; color: var(--yellow); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 1px;">Agent Sessions</div>
+                        <div style="display: flex; flex-direction: column; gap: 3px;">
+                            ${ss.length ? ss.map(s => {
+                                const ch = s.channel || 'global';
+                                const chLabel = ch === 'global' ? '' :
+                                    ch.startsWith('discord:channel:') ? ' #' + ch.split(':').pop().slice(-6) :
+                                    ch.startsWith('cron:') ? ' [cron]' :
+                                    ' [' + ch.slice(0, 12) + ']';
+                                const statusColor = s.status === 'active' ? 'var(--green)' :
+                                    s.status === 'idle' ? 'var(--text-muted)' :
+                                    s.status === 'completed' || s.status === 'complete' ? 'var(--accent)' :
+                                    'var(--yellow)';
+                                return `<div style="display: flex; align-items: center; font-size: 8px; gap: 6px;">
+                                    <span style="color: var(--accent); min-width: 50px;">${s.agent}</span>
+                                    <span style="font-size: 6px; color: var(--text-muted); min-width: 40px;">${chLabel}</span>
+                                    <span style="width: 6px; height: 6px; border: 1px solid ${statusColor}; background: ${statusColor}; flex-shrink: 0;"></span>
+                                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted);" title="${(s.task || '').replace(/"/g, '&quot;')}">${s.task || '--'}</span>
+                                    <span style="font-size: 6px; color: var(--text-muted); white-space: nowrap;">${timeAgo(s.updated_at)}</span>
+                                </div>`;
+                            }).join('') : '<div style="font-size: 8px; color: var(--text-muted);">No session states</div>'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSystemStats(stats) {
+            if (!stats) return '<div class="empty">System stats unavailable</div>';
+
+            const mem = stats.memory || {};
+            const disk = stats.disk || {};
+            const load = stats.load || {};
+            const memColor = mem.percent > 80 ? 'var(--red)' : mem.percent > 60 ? 'var(--yellow)' : 'var(--green)';
+            const diskColor = disk.percent > 80 ? 'var(--red)' : disk.percent > 60 ? 'var(--yellow)' : 'var(--green)';
+
+            return `
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="background: rgba(255,255,255,0.02); border: 2px solid var(--border); padding: 8px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="font-size: 7px; color: var(--text-muted);">RAM</span>
+                            <span style="font-size: 7px;">${mem.used_mb || 0} / ${mem.total_mb || 0} MB</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar" style="width: ${mem.percent || 0}%; background: ${memColor}; box-shadow: 0 0 6px ${memColor};"></div>
+                        </div>
+                        <div style="font-size: 7px; color: var(--text-muted); margin-top: 3px;">${mem.percent || 0}% // ${mem.available_mb || 0} MB free</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.02); border: 2px solid var(--border); padding: 8px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="font-size: 7px; color: var(--text-muted);">DISK</span>
+                            <span style="font-size: 7px;">${disk.used_gb || 0} / ${disk.total_gb || 0} GB</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar" style="width: ${disk.percent || 0}%; background: ${diskColor}; box-shadow: 0 0 6px ${diskColor};"></div>
+                        </div>
+                        <div style="font-size: 7px; color: var(--text-muted); margin-top: 3px;">${disk.percent || 0}% // ${disk.free_gb || 0} GB free</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.02); border: 2px solid var(--border); padding: 8px; display: flex; justify-content: space-between;">
+                        <div>
+                            <div style="font-size: 7px; color: var(--text-muted);">LOAD AVG</div>
+                            <div style="font-size: 10px; margin-top: 2px;">${load['1m'] || '--'} / ${load['5m'] || '--'} / ${load['15m'] || '--'}</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 7px; color: var(--text-muted);">UPTIME</div>
+                            <div style="font-size: 10px; margin-top: 2px;">${stats.uptime || '--'}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderOpsAlerts(alerts) {
+            if (!alerts?.length) return '<div class="empty">No recent ops alerts</div>';
+
+            const levelColors = { error: 'var(--red)', warning: 'var(--yellow)', info: 'var(--accent)' };
+            const levelIcons = { error: '!!', warning: '!?', info: '>>' };
+
+            return [...alerts].reverse().map(a => {
+                const color = levelColors[a.level] || 'var(--accent)';
+                const icon = levelIcons[a.level] || '>>';
+                const msg = a.message || '(empty)';
+                const preview = msg.length > 200 ? msg.substring(0, 200) + '...' : msg;
+
+                return `<div class="session" style="border-left: 3px solid ${color};">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                        <span style="font-size: 8px; color: ${color};">${icon} ${a.source || 'system'}</span>
+                        <span style="font-size: 7px; color: var(--text-muted);">${timeAgo(a.timestamp)}</span>
+                    </div>
+                    <div style="font-size: 7px; white-space: pre-wrap; word-break: break-word; color: var(--text-muted);">${escapeHtml(preview)}</div>
+                </div>`;
+            }).join('');
+        }
+
+        async function loadSystemStats() {
+            try {
+                const resp = await fetch(`${API_BASE}/system-stats`);
+                const data = await resp.json();
+                if (data.ok) {
+                    document.getElementById('systemStats').innerHTML = renderSystemStats(data.stats);
+                }
+            } catch (e) {
+                document.getElementById('systemStats').innerHTML = '<div class="empty">Stats API unavailable</div>';
+            }
+        }
+
+        async function loadOpsAlerts() {
+            try {
+                const resp = await fetch(`${API_BASE}/ops-alerts`);
+                const data = await resp.json();
+                if (data.ok) {
+                    document.getElementById('opsAlerts').innerHTML = renderOpsAlerts(data.alerts);
+                }
+            } catch (e) {
+                document.getElementById('opsAlerts').innerHTML = '<div class="empty">Ops alerts unavailable</div>';
+            }
+        }
+
+        async function loadMemoryHealth() {
+            try {
+                const resp = await fetch('http://100.82.23.99:8766/memory-health');
+                const data = await resp.json();
+                if (data.ok) {
+                    document.getElementById('memory').innerHTML = renderMemory(data.memory);
+                }
+            } catch (e) {
+                document.getElementById('memory').innerHTML = renderMemory({ error: 'Memory API not reachable' });
+            }
+        }
+
+        async function loadStatus() {
+            try {
+                const resp = await fetch('status.json?t=' + Date.now());
+                const data = await resp.json();
+
+                document.getElementById('lastUpdate').textContent =
+                    `v${data.version} // ${timeAgo(data.generated_at)}`;
+                document.getElementById('agents').innerHTML = renderAgents(data.agents, data.sessions);
+                document.getElementById('bindings').innerHTML = renderBindings(data.bindings);
+                document.getElementById('channels').innerHTML = renderChannels(data.channels);
+                document.getElementById('sessions').innerHTML = renderSessions(data.sessions);
+                document.getElementById('cron').innerHTML = renderCron(data.cron_jobs);
+                document.getElementById('health').innerHTML = renderHealth(data.health);
+                document.getElementById('timeline').innerHTML = renderTimeline(data.timeline);
+                document.getElementById('subagents').innerHTML = renderSubagents(data.subagents);
+                document.getElementById('discord').innerHTML = renderDiscordActivity(data.discord_activity);
+                document.getElementById('notion').innerHTML = renderNotionActivity(data.notion_activity);
+                document.getElementById('tasks').innerHTML = renderTasks(data.tasks);
+            } catch (e) {
+                console.error('Failed to load status:', e);
+                document.getElementById('lastUpdate').textContent = 'LOAD FAILED';
+            }
+        }
+
+        const API_BASE = 'http://100.82.23.99:8766';
+        let chatMessages = [];
+
+        function renderChat() {
+            const history = document.getElementById('chatHistory');
+            if (chatMessages.length === 0) {
+                history.style.display = 'none';
+                return;
+            }
+
+            history.style.display = 'block';
+            history.innerHTML = chatMessages.map(m => `
+                <div style="margin-bottom: 8px; ${m.type === 'user' ? 'text-align: right;' : ''}">
+                    <div style="display: inline-block; max-width: 80%; padding: 6px 10px;
+                        ${m.type === 'user'
+                            ? 'border: 2px solid var(--accent); color: var(--accent);'
+                            : m.type === 'thinking'
+                            ? 'border: 1px dashed var(--text-muted); color: var(--text-muted);'
+                            : 'border: 2px solid var(--border); color: var(--text);'}">
+                        ${m.type !== 'user' ? `<div style="font-size: 7px; color: var(--yellow); margin-bottom: 3px;">${m.agent || 'agent'}></div>` : ''}
+                        <div style="white-space: pre-wrap; word-break: break-word; font-size: 8px;">${escapeHtml(m.text)}</div>
+                    </div>
+                </div>
+            `).join('');
+
+            history.scrollTop = history.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function clearChat() {
+            chatMessages = [];
+            renderChat();
+        }
+
+        async function sendMessage() {
+            const agent = document.getElementById('agentSelect').value;
+            const message = document.getElementById('messageInput').value.trim();
+            const sendBtn = document.getElementById('sendBtn');
+            const input = document.getElementById('messageInput');
+
+            if (!message) return;
+
+            chatMessages.push({ type: 'user', text: message, agent });
+            input.value = '';
+            renderChat();
+
+            sendBtn.disabled = true;
+            sendBtn.textContent = '...';
+
+            try {
+                const resp = await fetch(`${API_BASE}/send`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agent, message })
+                });
+
+                const data = await resp.json();
+
+                if (data.ok && data.messageId) {
+                    chatMessages.push({ type: 'thinking', text: 'Processing...', agent, messageId: data.messageId });
+                    renderChat();
+                    pollForResponse(data.messageId, agent);
+                } else {
+                    chatMessages.push({ type: 'response', text: 'ERR: ' + (data.error || 'Failed'), agent });
+                    renderChat();
+                    sendBtn.disabled = false;
+                    sendBtn.textContent = 'SEND';
+                }
+            } catch (e) {
+                chatMessages.push({ type: 'response', text: 'API unreachable', agent });
+                renderChat();
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'SEND';
+            }
+        }
+
+        async function pollForResponse(messageId, agent) {
+            const sendBtn = document.getElementById('sendBtn');
+            let attempts = 0;
+            const maxAttempts = 60;
+
+            const poll = async () => {
+                try {
+                    const resp = await fetch(`${API_BASE}/response/${messageId}`);
+                    const data = await resp.json();
+
+                    if (data.ready) {
+                        chatMessages = chatMessages.filter(m => m.messageId !== messageId);
+                        chatMessages.push({
+                            type: 'response',
+                            text: data.response || '(no response)',
+                            agent: data.agent || agent
+                        });
+                        renderChat();
+                        sendBtn.disabled = false;
+                        sendBtn.textContent = 'SEND';
+                        return;
+                    }
+
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        setTimeout(poll, 2000);
+                    } else {
+                        chatMessages = chatMessages.filter(m => m.messageId !== messageId);
+                        chatMessages.push({ type: 'response', text: 'Timeout', agent });
+                        renderChat();
+                        sendBtn.disabled = false;
+                        sendBtn.textContent = 'SEND';
+                    }
+                } catch (e) {
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        setTimeout(poll, 2000);
+                    }
+                }
+            };
+
+            setTimeout(poll, 1000);
+        }
+
+        loadStatus();
+        loadMemoryHealth();
+        loadSystemStats();
+        loadOpsAlerts();
+        setInterval(loadStatus, 30000);
+        setInterval(loadMemoryHealth, 30000);
+        setInterval(loadSystemStats, 30000);
+        setInterval(loadOpsAlerts, 60000);
+    </script>
+</body>
+</html>

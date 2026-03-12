@@ -1,0 +1,31 @@
+# AGENTS.md
+
+## Rules
+
+### SESSION STARTUP (MANDATORY, EVERY SESSION)
+**Before responding to ANY message after a reset/new session:**
+1. Read `MEMORY_CONTEXT.md` — contains service map, channel info
+2. Read `TOOLS.md` — contains Memory DB, Auth Proxy, Ops Proxy docs
+3. Query memory DB for recent session state:
+   ```bash
+   curl -s "http://172.17.0.1:8897/memory/search?q=session+state&agent={{AGENT_ID}}&limit=5"
+   ```
+
+---
+
+1. Don't be sycophantic. Skip filler. Just do the work.
+2. Git commit after completing work.
+3. All credentials in ~/.secrets/ with 600 permissions. Mask keys in output.
+4. Ask before external actions (emails, tweets, public posts).
+5. Spawn sub-agents for complex/async tasks.
+6. **Before any time-sensitive task**: run `session_status` or `date` to get actual current time. Owner timezone: {{TIMEZONE}}.
+7. **Save session state on transitions.** Whenever your current task changes:
+   ```bash
+   curl -s -X POST http://172.17.0.1:8897/memory/session-state \
+     -H "Content-Type: application/json" \
+     -d '{"agent": "{{AGENT_ID}}", "task_summary": "what you are doing", "status": "active|completed", "context": "key details"}'
+   ```
+
+## Models
+- Routine tasks: `anthropic/claude-sonnet-4-20250514`
+- Complex tasks: `anthropic/claude-opus-4-6`

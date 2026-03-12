@@ -1,16 +1,30 @@
-# Secrets & credentials
-.env
+# Secrets
 .secrets/
-*.age
-*.key
+*.env
 
-# Runtime data
+# Generated config
+config/platform.yaml
+config/auth-proxy.json
+config/openclaw.json
+
+# Data
 *.db
-*.db-shm
-*.db-wal
-session-index.json
-watermarks/
-messages.jsonl
+*.sqlite
+data/
+
+# Docker
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # Node
 node_modules/
@@ -19,27 +33,16 @@ package-lock.json
 # Python
 __pycache__/
 *.pyc
+.venv/
 venv/
-*.egg-info/
 
-# ONNX models (too large for git)
-onnx-models/
+# Backup artifacts
+backup-*.tar.gz
 
-# Backups
-*.bak
-*.bak.*
-memory-backup-*/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Cache files
-*_cache.json
-status.json
-tasks.json
-alerts.json
-task-scan-state.json
+# Embedding models (downloaded at runtime)
+services/embeddings/models/*.onnx
+services/embeddings/models/*.json
+!services/embeddings/models/.gitkeep
 
 # Logs
 *.log

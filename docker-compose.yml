@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  auth-proxy:
+    build: ./services/auth-proxy
+    env_file: .env
+    ports:
+      - "${DOCKER_HOST_IP:-172.17.0.1}:${AUTH_PROXY_PORT:-9100}:9100"
+    volumes:
+      - ${TARS_HOME:-~}/.secrets-vault:/tars/.secrets-vault:ro
+      - ${TARS_HOME:-~}/.config/age:/tars/.config/age:ro
+      - ${TARS_HOME:-~}/.openclaw/openclaw.json:/tars/.openclaw/openclaw.json:ro
+      - ${TARS_HOME:-~}/.secrets:/tars/.secrets:ro
+      - auth-proxy-logs:/tars/.rescue-bot/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9100/ops/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # TODO: memory-api (Talkie)
+  # TODO: embedding-service (Talkie)
+  # TODO: web-proxy (Talkie)
+  # TODO: dashboard (Talkie)
+
+volumes:
+  auth-proxy-logs:

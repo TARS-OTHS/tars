@@ -1,0 +1,20 @@
+# TARS Memory Lifecycle Cron Jobs
+# Environment variables are loaded from /app/.env.cron
+
+# Memory backup (every 6 hours)
+55 */6 * * * . /app/.env.cron && /app/scripts/memory-backup.sh >> /var/log/tars-cron.log 2>&1
+
+# Memory lifecycle — decay, archive, purge (every 6 hours)
+0 */6 * * * . /app/.env.cron && /app/scripts/memory-lifecycle.sh >> /var/log/tars-cron.log 2>&1
+
+# Memory promotion (every 12 hours)
+0 */12 * * * . /app/.env.cron && /app/scripts/memory-promote.sh >> /var/log/tars-cron.log 2>&1
+
+# Memory extraction from session logs (every 10 and 40 minutes)
+10,40 * * * * . /app/.env.cron && /app/scripts/memory-extract-sessions.sh >> /var/log/tars-cron.log 2>&1
+
+# Session state auto-capture (every 15 minutes)
+*/15 * * * * . /app/.env.cron && /app/scripts/session-state-cron.sh >> /var/log/tars-cron.log 2>&1
+
+# Memory context regeneration (every 30 minutes)
+*/30 * * * * . /app/.env.cron && /app/scripts/memory-context-gen.sh >> /var/log/tars-cron.log 2>&1

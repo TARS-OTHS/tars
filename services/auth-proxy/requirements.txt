@@ -1,0 +1,7 @@
+# auth-proxy dependencies
+aiohttp>=3.9.0
+aiofiles>=23.0.0
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+cryptography>=41.0.0
+PyYAML>=6.0

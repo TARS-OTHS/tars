@@ -1,0 +1,173 @@
+{
+  "version": "1.0.0",
+  "skills": [
+    {
+      "id": "tavily-search",
+      "name": "Tavily Search",
+      "category": "research",
+      "description": "Search the web and extract content using Tavily API.",
+      "dependencies": {
+        "api_keys": ["TAVILY_API_KEY"],
+        "system": []
+      },
+      "default": true
+    },
+    {
+      "id": "serpapi-search",
+      "name": "SerpAPI Search",
+      "category": "research",
+      "description": "Search Google, News, YouTube, DuckDuckGo via SerpAPI.",
+      "dependencies": {
+        "api_keys": ["SERPAPI_KEY"],
+        "system": []
+      },
+      "default": false
+    },
+    {
+      "id": "analyze-paper",
+      "name": "Paper Analyzer",
+      "category": "research",
+      "description": "Critically analyze research papers for evidence quality.",
+      "dependencies": {
+        "api_keys": [],
+        "system": []
+      },
+      "default": false
+    },
+    {
+      "id": "daily-planning",
+      "name": "Daily Planning",
+      "category": "productivity",
+      "description": "Morning planning with goals, calendar review, and daily todos.",
+      "dependencies": {
+        "api_keys": [],
+        "integrations": ["google-calendar"],
+        "system": []
+      },
+      "default": false
+    },
+    {
+      "id": "daily-review",
+      "name": "Daily Review",
+      "category": "productivity",
+      "description": "End-of-day review, task archival, and reflection.",
+      "dependencies": {
+        "api_keys": [],
+        "system": []
+      },
+      "default": false
+    },
+    {
+      "id": "whats-next",
+      "name": "What's Next",
+      "category": "productivity",
+      "description": "Context-aware task prioritization based on time, tasks, and calendar.",
+      "dependencies": {
+        "api_keys": [],
+        "integrations": ["google-calendar"],
+        "system": []
+      },
+      "default": false
+    },
+    {
+      "id": "book-event",
+      "name": "Book Event",
+      "category": "productivity",
+      "description": "Schedule events with conflict detection.",
+      "dependencies": {
+        "api_keys": [],
+        "integrations": ["google-calendar"],
+        "system": []
+      },
+      "default": false
+    },
+    {
+      "id": "weather",
+      "name": "Weather",
+      "category": "utility",
+      "description": "Current weather and forecasts via wttr.in or Open-Meteo.",
+      "dependencies": {
+        "api_keys": [],
+        "system": []
+      },
+      "default": true
+    },
+    {
+      "id": "coding-agent",
+      "name": "Coding Agent",
+      "category": "development",
+      "description": "Delegate coding tasks to background sub-agents.",
+      "dependencies": {
+        "api_keys": [],
+        "system": []
+      },
+      "default": true
+    },
+    {
+      "id": "healthcheck",
+      "name": "Health Check",
+      "category": "development",
+      "description": "Security auditing and hardening for the host machine.",
+      "dependencies": {
+        "api_keys": [],
+        "system": []
+      },
+      "default": true
+    },
+    {
+      "id": "tmux",
+      "name": "Tmux Control",
+      "category": "development",
+      "description": "Remote-control tmux sessions for interactive CLIs.",
+      "dependencies": {
+        "api_keys": [],
+        "system": ["tmux"]
+      },
+      "default": false
+    },
+    {
+      "id": "video-frames",
+      "name": "Video Frames",
+      "category": "utility",
+      "description": "Extract frames or clips from videos using ffmpeg.",
+      "dependencies": {
+        "api_keys": [],
+        "system": ["ffmpeg"]
+      },
+      "default": false
+    },
+    {
+      "id": "skill-creator",
+      "name": "Skill Creator",
+      "category": "utility",
+      "description": "Create or update agent skills with proper structure.",
+      "dependencies": {
+        "api_keys": [],
+        "system": []
+      },
+      "default": false
+    },
+    {
+      "id": "health-query",
+      "name": "Health Query",
+      "category": "health",
+      "description": "Evidence-based health and fitness Q&A.",
+      "dependencies": {
+        "api_keys": [],
+        "system": []
+      },
+      "default": false
+    },
+    {
+      "id": "protocol",
+      "name": "Protocol Designer",
+      "category": "health",
+      "description": "Design structured health/fitness intervention protocols.",
+      "dependencies": {
+        "api_keys": [],
+        "system": []
+      },
+      "default": false
+    }
+  ]
+}
