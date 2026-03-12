@@ -46,13 +46,13 @@ ask_yn() {
 # SECTION 1: PREREQUISITES
 # ============================================================
 check_prerequisites() {
-    print_header "Prerequisites"
+    print_header "Section 1/6 — Prerequisites"
     local missing=() can_install=()
 
     check_cmd() {
         local cmd="$1" pkg="${2:-$1}"
         if command -v "$cmd" &>/dev/null; then
-            print_success "$cmd found ($(command -v "$cmd"))"
+            print_success "$cmd found"
         else
             print_warn "$cmd not found"
             missing+=("$cmd")
@@ -130,7 +130,7 @@ check_prerequisites() {
 # SECTION 2: BASICS
 # ============================================================
 collect_basics() {
-    print_header "Basic Configuration"
+    print_header "Section 2/6 — Basic Configuration"
 
     OWNER_NAME=$(ask "Your name" "${OWNER_NAME:-}")
     [[ -z "$OWNER_NAME" ]] && { print_error "Owner name is required"; exit 1; }
@@ -156,132 +156,116 @@ collect_basics() {
 }
 
 # ============================================================
-# SECTION 3: MESSAGING PLATFORM
+# SECTION 3: OPENCLAW GATEWAY
 # ============================================================
-collect_messaging() {
-    print_header "Messaging Platform"
+# OpenClaw handles Claude auth (Max subscription or API key),
+# messaging platform setup (Discord/Slack), model selection,
+# and agent lifecycle. TARS does not duplicate any of this.
+# ============================================================
+setup_openclaw() {
+    print_header "Section 3/6 — OpenClaw Gateway"
 
-    echo "  Options:"
-    echo "    1) Discord"
-    echo "    2) Slack"
-    local choice
-    choice=$(ask "Choice" "1")
-
-    if [[ "$choice" == "2" ]]; then
-        MESSAGING_PLATFORM="slack"
-        echo
-        echo "  Slack setup:"
-        echo "    1. Go to https://api.slack.com/apps → Create New App"
-        echo "    2. Choose 'From scratch', give it a name and pick your workspace"
-        echo "    3. Under 'OAuth & Permissions', add bot scopes: chat:write, channels:history, im:history"
-        echo "    4. Install the app to your workspace"
-        echo "    5. Copy the 'Bot User OAuth Token' (starts with xoxb-)"
-        echo
-        local token
-        token=$(ask_secret "Slack bot token (xoxb-...)")
-        local status
-        status=$(curl -s -H "Authorization: Bearer $token" https://slack.com/api/auth.test | grep -o '"ok":true' || true)
-        if [[ -n "$status" ]]; then
-            print_success "Slack token valid"
-            SLACK_BOT_TOKEN="$token"
-        else
-            print_error "Slack token validation failed — check the token and try again"
-            exit 1
-        fi
+    # Check if OpenClaw is already installed
+    local oc_bin=""
+    if command -v openclaw &>/dev/null; then
+        oc_bin="$(command -v openclaw)"
+        print_success "OpenClaw found at $oc_bin"
+    elif [[ -x "$HOME/.npm-global/bin/openclaw" ]]; then
+        oc_bin="$HOME/.npm-global/bin/openclaw"
+        export PATH="$HOME/.npm-global/bin:$PATH"
+        print_success "OpenClaw found at $oc_bin"
     else
-        MESSAGING_PLATFORM="discord"
-        echo
-        echo "  Discord bot setup:"
-        echo "    1. Go to https://discord.com/developers/applications → New Application"
-        echo "    2. Name your bot, then go to Bot → Add Bot"
-        echo "    3. Under Token, click 'Reset Token' and copy it"
-        echo "    4. Under Privileged Gateway Intents, enable: Message Content Intent"
-        echo "    5. Go to OAuth2 → URL Generator → select bot + applications.commands"
-        echo "       Add permissions: Send Messages, Read Message History"
-        echo "    6. Copy the generated URL and open it to invite the bot to your server"
-        echo
-        local token
-        token=$(ask_secret "Discord bot token")
-        local response
-        response=$(curl -s -H "Authorization: Bot $token" https://discord.com/api/v10/users/@me)
-        if echo "$response" | grep -q '"id"'; then
-            local bot_name
-            bot_name=$(echo "$response" | grep -o '"username":"[^"]*"' | cut -d'"' -f4)
-            print_success "Discord token valid — bot name: $bot_name"
-            DISCORD_BOT_TOKEN="$token"
+        echo "  Installing OpenClaw v${OPENCLAW_VERSION}..."
+        mkdir -p "$HOME/.npm-global"
+        npm install -g "openclaw@${OPENCLAW_VERSION}" --prefix "$HOME/.npm-global" 2>&1 | tail -1
+        export PATH="$HOME/.npm-global/bin:$PATH"
+        if command -v openclaw &>/dev/null; then
+            print_success "OpenClaw ${OPENCLAW_VERSION} installed"
         else
-            print_error "Discord token validation failed — check the token and try again"
+            print_error "OpenClaw installation failed"
+            echo "  Install manually: npm install -g openclaw@${OPENCLAW_VERSION}"
             exit 1
         fi
     fi
 
-    DISCORD_GUILD_ID=$(ask "Discord server (guild) ID (right-click server → Copy Server ID)" "${DISCORD_GUILD_ID:-}")
-    DISCORD_CHANNEL_ID=$(ask "Discord channel ID for agent messages" "${DISCORD_CHANNEL_ID:-}")
+    # Check if OpenClaw is already configured
+    local oc_config="$HOME/.openclaw/openclaw.json"
+    if [[ -f "$oc_config" ]]; then
+        print_success "OpenClaw config found at $oc_config"
+        echo
+        local ans
+        ans=$(ask_yn "Re-run OpenClaw setup? (N = keep existing config)" "n")
+        if [[ "$ans" =~ ^[Yy] ]]; then
+            echo
+            print_info "Launching OpenClaw setup..."
+            print_info "This configures: Claude connection, messaging platform, model selection"
+            echo
+            openclaw setup
+        fi
+    else
+        echo
+        print_info "OpenClaw needs initial configuration."
+        print_info "This will set up: Claude connection, messaging platform, model selection"
+        echo
+        openclaw setup
+    fi
+
+    # Verify OpenClaw config exists after setup
+    if [[ ! -f "$oc_config" ]]; then
+        print_error "OpenClaw config not found after setup"
+        echo "  Run 'openclaw setup' manually, then re-run this script"
+        exit 1
+    fi
+
+    # Extract what we need from OpenClaw config for TARS .env
+    AGENT_MODEL=$(jq -r '.agents.defaults.model // "claude-sonnet-4-6"' "$oc_config" 2>/dev/null || echo "claude-sonnet-4-6")
+    MESSAGING_PLATFORM=$(jq -r '.agents.list[0].platform // "discord"' "$oc_config" 2>/dev/null || echo "discord")
+
+    print_success "OpenClaw configured — model: $AGENT_MODEL, platform: $MESSAGING_PLATFORM"
 }
 
 # ============================================================
-# SECTION 4: AI PROVIDER
+# SECTION 4: AGENT IDENTITY
 # ============================================================
-collect_ai_provider() {
-    print_header "AI Provider"
+collect_agent_identity() {
+    print_header "Section 4/6 — Agent Identity"
 
-    echo "  How do you access Claude?"
-    echo "    1) Claude Max subscription (recommended — uses Claude CLI, no API key needed)"
-    echo "    2) Anthropic API key (direct API access, pay per token)"
-    local provider_choice
-    provider_choice=$(ask "Choice" "1")
+    AGENT_NAME=$(ask "Agent name" "TARS")
+    AGENT_ID=$(echo "$AGENT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
 
-    if [[ "$provider_choice" == "2" ]]; then
-        AI_PROVIDER="api"
-        echo
-        echo "  Get an API key at https://console.anthropic.com"
-        local key
-        key=$(ask_secret "Anthropic API key (sk-ant-...)")
-        local status
-        status=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "x-api-key: $key" \
-            -H "anthropic-version: 2023-06-01" \
-            https://api.anthropic.com/v1/models)
-        if [[ "$status" == "200" ]]; then
-            print_success "Anthropic API key valid"
-            ANTHROPIC_API_KEY="$key"
-        else
-            print_error "Anthropic API key validation failed (HTTP $status)"
-            exit 1
-        fi
+    echo "  Agent role:"
+    echo "    1) assistant         — general-purpose personal or business assistant"
+    echo "    2) researcher        — research, analysis, news, web search"
+    echo "    3) developer         — coding, technical tasks, ops"
+    echo "    4) business-assistant — business workflows, client management, scheduling"
+    local role_choice
+    role_choice=$(ask "Choice" "1")
+    case "$role_choice" in
+        2) AGENT_ROLE="researcher" ;;
+        3) AGENT_ROLE="developer" ;;
+        4) AGENT_ROLE="business-assistant" ;;
+        *)  AGENT_ROLE="assistant" ;;
+    esac
+
+    echo "  Brief description: What is $AGENT_NAME for? (1-2 sentences)"
+    if $NON_INTERACTIVE; then
+        AGENT_DESCRIPTION="A general-purpose AI assistant."
     else
-        AI_PROVIDER="claude-max"
-        ANTHROPIC_API_KEY=""
-        echo
-        echo "  Claude Max uses the Claude CLI. Checking if it's installed..."
-        if command -v claude &>/dev/null; then
-            print_success "Claude CLI found ($(claude --version 2>/dev/null || echo 'installed'))"
-        else
-            print_warn "Claude CLI not found — will be installed with OpenClaw"
-        fi
-        print_success "Claude Max subscription selected — no API key needed"
+        read -r -p "  > " AGENT_DESCRIPTION
+        AGENT_DESCRIPTION="${AGENT_DESCRIPTION:-A general-purpose AI assistant.}"
     fi
 
-    echo
-    echo "  Model selection:"
-    echo "    1) claude-sonnet-4-6 (recommended — fast, capable, cost-effective)"
-    echo "    2) claude-opus-4-6   (most capable, best for complex tasks)"
-    local model_choice
-    model_choice=$(ask "Choice" "1")
-    AGENT_MODEL="claude-sonnet-4-6"
-    [[ "$model_choice" == "2" ]] && AGENT_MODEL="claude-opus-4-6"
-    print_success "Model: $AGENT_MODEL"
-
-    echo
-    echo "  OpenAI API key (optional, for multi-model support — skip with Enter)"
-    OPENAI_API_KEY=$(ask_secret "OpenAI API key" || true)
+    print_success "Agent: $AGENT_NAME ($AGENT_ROLE)"
 }
 
 # ============================================================
 # SECTION 5: OPTIONAL INTEGRATIONS
 # ============================================================
+# These are TARS-specific service integrations that extend
+# what the agent can do beyond Claude + messaging.
+# ============================================================
 collect_integrations() {
-    print_header "Optional Integrations (press Enter to skip any)"
+    print_header "Section 5/6 — Optional Integrations (Enter to skip any)"
 
     TAVILY_API_KEY=$(ask_secret "Tavily API key (web search)" || true)
     [[ -n "${TAVILY_API_KEY:-}" ]] && print_success "Tavily: enabled"
@@ -309,40 +293,10 @@ collect_integrations() {
 }
 
 # ============================================================
-# SECTION 6: AGENT IDENTITY
-# ============================================================
-collect_agent_identity() {
-    print_header "Agent Identity"
-
-    AGENT_NAME=$(ask "Agent name" "TARS")
-    AGENT_ID=$(echo "$AGENT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-
-    echo "  Agent role:"
-    echo "    1) assistant         — general-purpose personal or business assistant"
-    echo "    2) researcher        — research, analysis, news, web search"
-    echo "    3) developer         — coding, technical tasks, ops"
-    echo "    4) business-assistant — business workflows, client management, scheduling"
-    local role_choice
-    role_choice=$(ask "Choice" "1")
-    case "$role_choice" in
-        2) AGENT_ROLE="researcher" ;;
-        3) AGENT_ROLE="developer" ;;
-        4) AGENT_ROLE="business-assistant" ;;
-        *)  AGENT_ROLE="assistant" ;;
-    esac
-
-    echo "  Brief description: What is $AGENT_NAME for? (1-2 sentences)"
-    read -r -p "  > " AGENT_DESCRIPTION
-    AGENT_DESCRIPTION="${AGENT_DESCRIPTION:-A general-purpose AI assistant.}"
-
-    print_success "Agent: $AGENT_NAME ($AGENT_ROLE)"
-}
-
-# ============================================================
-# SECTION 7: GENERATE & DEPLOY
+# SECTION 6: GENERATE & DEPLOY
 # ============================================================
 generate_and_deploy() {
-    print_header "Generating Configuration"
+    print_header "Section 6/6 — Generate & Deploy"
 
     TARS_HOME="${TARS_HOME:-$SCRIPT_DIR}"
     DOCKER_HOST_IP=$(docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null || echo "172.17.0.1")
@@ -379,21 +333,10 @@ WEB_PROXY_PORT=8899
 DASHBOARD_PORT=8765
 DASHBOARD_API_PORT=8766
 
-# OpenClaw
+# OpenClaw (manages Claude auth, messaging platform, model selection)
 OPENCLAW_VERSION=${OPENCLAW_VERSION}
-
-# Messaging
 MESSAGING_PLATFORM=${MESSAGING_PLATFORM}
-${DISCORD_BOT_TOKEN:+DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}}
-${DISCORD_GUILD_ID:+DISCORD_GUILD_ID=${DISCORD_GUILD_ID}}
-${DISCORD_CHANNEL_ID:+DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}}
-${SLACK_BOT_TOKEN:+SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}}
-
-# AI
-AI_PROVIDER=${AI_PROVIDER}
 AGENT_MODEL=${AGENT_MODEL}
-${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}}
-${OPENAI_API_KEY:+OPENAI_API_KEY=${OPENAI_API_KEY}}
 
 # Agent
 AGENT_NAME=${AGENT_NAME}
@@ -421,13 +364,11 @@ ENVEOF
     local workspace="$TARS_HOME/workspace-${AGENT_ID}"
     mkdir -p "$workspace"
     generate_soul_md > "$workspace/SOUL.md"
-    cp "$SCRIPT_DIR/templates/default/AGENTS.md.tmpl" "$workspace/AGENTS.md" 2>/dev/null || true
-    cp "$SCRIPT_DIR/templates/default/TOOLS.md.tmpl" "$workspace/TOOLS.md" 2>/dev/null || true
     print_success "Agent workspace: $workspace"
 
     print_header "Building Docker Images"
     echo "  This may take a few minutes on first run..."
-    docker compose build --parallel 2>&1 | grep -E 'Successfully|ERROR|error' || true
+    docker compose build --network=host --parallel 2>&1 | grep -E 'Successfully|ERROR|error' || true
     print_success "Docker images built"
 
     print_header "Starting Services"
@@ -439,28 +380,20 @@ ENVEOF
     wait_for_service "http://localhost:${MEMORY_API_PORT:-8897}/health" "memory-api" 60
     wait_for_service "http://localhost:${EMBEDDING_PORT:-8896}/health" "embedding-service" 90
 
-    print_header "Installing OpenClaw Gateway"
-    if ! command -v openclaw &>/dev/null; then
-        npm install -g "openclaw@${OPENCLAW_VERSION}" --prefix "$HOME/.npm-global" 2>/dev/null
-        export PATH="$HOME/.npm-global/bin:$PATH"
-    fi
-    print_success "OpenClaw ${OPENCLAW_VERSION} ready"
-
     print_header "Done!"
     echo
     echo -e "  ${GREEN}TARS is running.${RESET}"
     echo
     echo "  Agent:     $AGENT_NAME ($AGENT_ROLE)"
-    echo "  Platform:  $MESSAGING_PLATFORM"
+    echo "  Platform:  $MESSAGING_PLATFORM (configured via OpenClaw)"
+    echo "  Model:     $AGENT_MODEL (configured via OpenClaw)"
     echo "  Dashboard: http://localhost:${DASHBOARD_PORT:-8765}"
-    echo "  Model:     $AGENT_MODEL"
     echo
     echo "  Next steps:"
-    echo "    1. Open your $MESSAGING_PLATFORM server/workspace"
-    echo "    2. Say hello to $AGENT_NAME"
-    echo "    3. Dashboard: http://localhost:${DASHBOARD_PORT:-8765}"
-    echo "    4. Add more agents: ./scripts/add-agent.sh"
-    echo "    5. Install skills: see docs/SKILLS.md"
+    echo "    1. Open your $MESSAGING_PLATFORM and say hello to $AGENT_NAME"
+    echo "    2. Dashboard: http://localhost:${DASHBOARD_PORT:-8765}"
+    echo "    3. Add more agents: ./scripts/add-agent.sh"
+    echo "    4. Reconfigure OpenClaw: openclaw setup"
     echo
 }
 
@@ -507,7 +440,6 @@ Your owner is ${OWNER_NAME}. They set you up using TARS v${TARS_VERSION}.
 Be direct, concise, and helpful. Ask clarifying questions when needed. Proactively flag issues.
 
 ## Capabilities
-$(declare -f collect_integrations > /dev/null 2>&1 || true)
 - Memory: persistent across conversations
 - Web search: $([ -n "${TAVILY_API_KEY:-}" ] && echo "enabled (Tavily)" || echo "not configured")
 - Google Workspace: $([ -n "${GOOGLE_CLIENT_ID:-}" ] && echo "enabled (Calendar, Gmail, Drive)" || echo "not configured")
@@ -540,13 +472,12 @@ main() {
         fi
     fi
 
-    check_prerequisites
-    collect_basics
-    collect_messaging
-    collect_ai_provider
-    collect_integrations
-    collect_agent_identity
-    generate_and_deploy
+    check_prerequisites       # 1. System requirements
+    collect_basics            # 2. Owner name, timezone, purpose
+    setup_openclaw            # 3. Install & configure OpenClaw (Claude auth + messaging)
+    collect_agent_identity    # 4. Agent name, role, description
+    collect_integrations      # 5. Tavily, Notion, Trello, Google
+    generate_and_deploy       # 6. .env, Docker build, start services
 }
 
 main "$@"
