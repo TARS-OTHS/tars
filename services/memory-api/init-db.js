@@ -23,11 +23,9 @@ db.pragma('synchronous = NORMAL');
 
 // Strip PRAGMA lines from schema and execute the rest
 const ddl = schema
-    .split('
-')
+    .split('\n')
     .filter(line => !line.trim().startsWith('PRAGMA'))
-    .join('
-');
+    .join('\n');
 
 db.exec(ddl);
 
@@ -44,5 +42,4 @@ console.log('Triggers:', triggers.map(t => t.name).join(', '));
 console.log('WAL:', db.pragma('journal_mode', { simple: true }));
 
 db.close();
-console.log('
-DB initialized at', DB_PATH);
+console.log('\nDB initialized at', DB_PATH);
