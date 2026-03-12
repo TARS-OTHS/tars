@@ -225,32 +225,55 @@ collect_messaging() {
 collect_ai_provider() {
     print_header "AI Provider"
 
-    echo "  Anthropic API key required (get one at https://console.anthropic.com)"
-    local key
-    key=$(ask_secret "Anthropic API key (sk-ant-...)")
-    local status
-    status=$(curl -s -o /dev/null -w "%{http_code}" \
-        -H "x-api-key: $key" \
-        -H "anthropic-version: 2023-06-01" \
-        https://api.anthropic.com/v1/models)
-    if [[ "$status" == "200" ]]; then
-        print_success "Anthropic API key valid"
-        ANTHROPIC_API_KEY="$key"
+    echo "  How do you access Claude?"
+    echo "    1) Claude Max subscription (recommended — uses Claude CLI, no API key needed)"
+    echo "    2) Anthropic API key (direct API access, pay per token)"
+    local provider_choice
+    provider_choice=$(ask "Choice" "1")
+
+    if [[ "$provider_choice" == "2" ]]; then
+        AI_PROVIDER="api"
+        echo
+        echo "  Get an API key at https://console.anthropic.com"
+        local key
+        key=$(ask_secret "Anthropic API key (sk-ant-...)")
+        local status
+        status=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "x-api-key: $key" \
+            -H "anthropic-version: 2023-06-01" \
+            https://api.anthropic.com/v1/models)
+        if [[ "$status" == "200" ]]; then
+            print_success "Anthropic API key valid"
+            ANTHROPIC_API_KEY="$key"
+        else
+            print_error "Anthropic API key validation failed (HTTP $status)"
+            exit 1
+        fi
     else
-        print_error "Anthropic API key validation failed (HTTP $status)"
-        exit 1
+        AI_PROVIDER="claude-max"
+        ANTHROPIC_API_KEY=""
+        echo
+        echo "  Claude Max uses the Claude CLI. Checking if it's installed..."
+        if command -v claude &>/dev/null; then
+            print_success "Claude CLI found ($(claude --version 2>/dev/null || echo 'installed'))"
+        else
+            print_warn "Claude CLI not found — will be installed with OpenClaw"
+        fi
+        print_success "Claude Max subscription selected — no API key needed"
     fi
 
+    echo
     echo "  Model selection:"
     echo "    1) claude-sonnet-4-6 (recommended — fast, capable, cost-effective)"
-    echo "    2) claude-opus-4-6   (most capable — higher cost)"
+    echo "    2) claude-opus-4-6   (most capable, best for complex tasks)"
     local model_choice
     model_choice=$(ask "Choice" "1")
     AGENT_MODEL="claude-sonnet-4-6"
     [[ "$model_choice" == "2" ]] && AGENT_MODEL="claude-opus-4-6"
     print_success "Model: $AGENT_MODEL"
 
-    echo "  OpenAI API key (optional — skip with Enter)"
+    echo
+    echo "  OpenAI API key (optional, for multi-model support — skip with Enter)"
     OPENAI_API_KEY=$(ask_secret "OpenAI API key" || true)
 }
 
@@ -367,8 +390,9 @@ ${DISCORD_CHANNEL_ID:+DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}}
 ${SLACK_BOT_TOKEN:+SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}}
 
 # AI
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+AI_PROVIDER=${AI_PROVIDER}
 AGENT_MODEL=${AGENT_MODEL}
+${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}}
 ${OPENAI_API_KEY:+OPENAI_API_KEY=${OPENAI_API_KEY}}
 
 # Agent
