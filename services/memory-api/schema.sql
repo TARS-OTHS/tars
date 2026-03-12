@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS memories (
     scope_target TEXT,
     tags TEXT,
     metadata TEXT,
-    pinned INTEGER DEFAULT 0
+    pinned INTEGER DEFAULT 0,
+    embedding BLOB
 );
 
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
