@@ -24,5 +24,5 @@ ENV EMBEDDING_SERVICE_URL=http://embedding-service:8896
 
 EXPOSE 8897
 
-# Run migration check on startup, then start server
-CMD ["node", "server.js"]
+# Init DB if it doesn't exist, then start server
+CMD ["sh", "-c", "test -f $DB_PATH || node init-db.js && node server.js"]
