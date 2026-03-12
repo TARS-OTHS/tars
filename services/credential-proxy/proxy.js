@@ -196,6 +196,13 @@ function handleConnect(req, clientSocket, head) {
 
 // --- Handle HTTP requests ---
 function handleRequest(clientReq, clientRes) {
+  // Health endpoint for Docker healthcheck
+  if (clientReq.url === '/health' || clientReq.url === '/') {
+    clientRes.writeHead(200, { 'Content-Type': 'application/json' });
+    clientRes.end(JSON.stringify({ status: 'ok', secrets: Object.keys(secrets).length }));
+    return;
+  }
+
   const parsedUrl = url.parse(clientReq.url);
   const hostname = parsedUrl.hostname;
   const sourceIp = clientReq.socket.remoteAddress.replace('::ffff:', '');

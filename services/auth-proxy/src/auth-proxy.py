@@ -52,7 +52,7 @@ PYTHON_SITE_PACKAGES = os.environ.get("PYTHON_SITE_PACKAGES", str(TARS_HOME / ".
 del _py_ver
 
 # --- Config ---
-BIND_HOST = DOCKER_HOST_IP
+BIND_HOST = os.environ.get("BIND_HOST", "0.0.0.0")
 BIND_PORT = AUTH_PROXY_PORT
 VAULT_PATH = str(TARS_HOME / ".secrets-vault/secrets.age")
 AGE_KEY_PATH = str(TARS_HOME / ".config/age/key.txt")
