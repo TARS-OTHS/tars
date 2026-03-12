@@ -217,11 +217,7 @@ setup_openclaw() {
         exit 1
     fi
 
-    # Extract what we need from OpenClaw config for TARS .env
-    AGENT_MODEL=$(jq -r '.agents.defaults.model // "claude-sonnet-4-6"' "$oc_config" 2>/dev/null || echo "claude-sonnet-4-6")
-    MESSAGING_PLATFORM=$(jq -r '.agents.list[0].platform // "discord"' "$oc_config" 2>/dev/null || echo "discord")
-
-    print_success "OpenClaw configured — model: $AGENT_MODEL, platform: $MESSAGING_PLATFORM"
+    print_success "OpenClaw configured"
 }
 
 # ============================================================
@@ -333,10 +329,8 @@ WEB_PROXY_PORT=8899
 DASHBOARD_PORT=8765
 DASHBOARD_API_PORT=8766
 
-# OpenClaw (manages Claude auth, messaging platform, model selection)
+# OpenClaw (manages Claude auth, messaging, model selection — no TARS coupling)
 OPENCLAW_VERSION=${OPENCLAW_VERSION}
-MESSAGING_PLATFORM=${MESSAGING_PLATFORM}
-AGENT_MODEL=${AGENT_MODEL}
 
 # Agent
 AGENT_NAME=${AGENT_NAME}
@@ -385,12 +379,13 @@ ENVEOF
     echo -e "  ${GREEN}TARS is running.${RESET}"
     echo
     echo "  Agent:     $AGENT_NAME ($AGENT_ROLE)"
-    echo "  Platform:  $MESSAGING_PLATFORM (configured via OpenClaw)"
-    echo "  Model:     $AGENT_MODEL (configured via OpenClaw)"
     echo "  Dashboard: http://localhost:${DASHBOARD_PORT:-8765}"
     echo
+    echo "  Claude connection, messaging platform, and model are managed by OpenClaw."
+    echo "  Run 'openclaw setup' any time to reconfigure."
+    echo
     echo "  Next steps:"
-    echo "    1. Open your $MESSAGING_PLATFORM and say hello to $AGENT_NAME"
+    echo "    1. Say hello to $AGENT_NAME on your messaging platform"
     echo "    2. Dashboard: http://localhost:${DASHBOARD_PORT:-8765}"
     echo "    3. Add more agents: ./scripts/add-agent.sh"
     echo "    4. Reconfigure OpenClaw: openclaw setup"
@@ -433,8 +428,6 @@ Your owner is ${OWNER_NAME}. They set you up using TARS v${TARS_VERSION}.
 
 ## Deployment
 - Purpose: ${DEPLOYMENT_PURPOSE}
-- Platform: ${MESSAGING_PLATFORM}
-- Model: ${AGENT_MODEL}
 
 ## Communication Style
 Be direct, concise, and helpful. Ask clarifying questions when needed. Proactively flag issues.
