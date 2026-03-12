@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 PORT = 8766
-BIND = os.environ.get('BIND', '100.82.23.99')
+BIND = os.environ.get('BIND_HOST', '0.0.0.0')
 DASHBOARD_DIR = Path(__file__).parent
 RESPONSES_DIR = DASHBOARD_DIR / "responses"
 TASKS_FILE = DASHBOARD_DIR / "tasks.json"

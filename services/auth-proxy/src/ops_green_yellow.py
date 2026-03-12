@@ -33,11 +33,11 @@ del _os_param, _Path_param
 
 log = logging.getLogger("auth-proxy")
 
-OPENCLAW_CONFIG = "str(_TARS_HOME / .openclaw/openclaw.json)"
-WORKSPACE_BASE = "str(_TARS_HOME / .openclaw/workspace)"
-AGENT_WORKSPACES = "str(_TARS_HOME / .openclaw)"
-SKILL_LIBRARY = "str(_TARS_HOME / .openclaw/skills)"
-OPENCLAW_BIN = "str(_Path_param(_NPM_GLOBAL_BIN) / "openclaw")"
+OPENCLAW_CONFIG = str(_TARS_HOME / ".openclaw/openclaw.json")
+WORKSPACE_BASE = str(_TARS_HOME / ".openclaw/workspace")
+AGENT_WORKSPACES = str(_TARS_HOME / ".openclaw")
+SKILL_LIBRARY = str(_TARS_HOME / ".openclaw/skills")
+OPENCLAW_BIN = os.path.join(_NPM_GLOBAL_BIN, "openclaw")
 
 
 def _get_agent_id(request):

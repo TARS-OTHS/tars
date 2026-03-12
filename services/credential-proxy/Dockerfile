@@ -2,7 +2,7 @@ FROM node:20-slim
 
 WORKDIR /app
 
-COPY proxy.js .
+COPY proxy.js proxy-config-oc.json proxy-config-cc.json ./
 
 ENV PROXY_LOG_PATH=/app/logs/proxy.log
 ENV BIND_HOST=0.0.0.0

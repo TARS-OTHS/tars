@@ -1,0 +1,5 @@
+{
+  "listenPort": 8899,
+  "services": {},
+  "allowWebBrowsing": false
+}
