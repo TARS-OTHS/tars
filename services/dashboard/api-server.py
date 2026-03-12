@@ -10,7 +10,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from datetime import datetime, timezone
 
-PORT = 8766
+PORT = int(os.environ.get('API_PORT', '8766'))
 BIND = os.environ.get('BIND_HOST', '0.0.0.0')
 DASHBOARD_DIR = Path(__file__).parent
 RESPONSES_DIR = DASHBOARD_DIR / "responses"
@@ -32,6 +32,11 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json({})
     
     def do_GET(self):
+        # Health check
+        if self.path == '/' or self.path == '/health':
+            self._send_json({'ok': True, 'status': 'running'})
+            return
+
         # Check for response
         if self.path.startswith('/response/'):
             msg_id = self.path.split('/')[-1].split('?')[0]
