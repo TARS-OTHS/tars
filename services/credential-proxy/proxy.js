@@ -68,13 +68,24 @@ function getConfigForSource(sourceIp) {
 let secrets = {};
 
 function loadVault() {
+  const fs = require('fs');
+  if (!fs.existsSync(VAULT_PATH)) {
+    log(`WARNING: Vault not found at ${VAULT_PATH} — starting with empty secrets. Run setup.sh to configure.`);
+    secrets = {};
+    return;
+  }
+  if (!fs.existsSync(AGE_KEY_PATH)) {
+    log(`WARNING: Age key not found at ${AGE_KEY_PATH} — starting with empty secrets.`);
+    secrets = {};
+    return;
+  }
   try {
     const raw = execSync(`age -d -i "${AGE_KEY_PATH}" "${VAULT_PATH}"`, { encoding: 'utf8' });
     secrets = JSON.parse(raw);
     log(`Vault loaded: ${Object.keys(secrets).length} secrets`);
   } catch (e) {
-    log(`FATAL: Failed to decrypt vault: ${e.message}`);
-    process.exit(1);
+    log(`WARNING: Failed to decrypt vault: ${e.message} — starting with empty secrets.`);
+    secrets = {};
   }
 }
 

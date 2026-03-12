@@ -413,6 +413,12 @@ ROUTE_DEFS = {
 # --- Vault ---
 def load_vault():
     """Decrypt the age vault and return secrets dict."""
+    if not os.path.exists(VAULT_PATH):
+        log.warning("Vault not found at %s — starting with empty secrets. Run setup.sh to configure.", VAULT_PATH)
+        return {}
+    if not os.path.exists(AGE_KEY_PATH):
+        log.warning("Age key not found at %s — starting with empty secrets.", AGE_KEY_PATH)
+        return {}
     try:
         result = subprocess.run(
             ["age", "-d", "-i", AGE_KEY_PATH, VAULT_PATH],
@@ -422,11 +428,11 @@ def load_vault():
         log.info("Vault loaded: %d secrets", len(secrets))
         return secrets
     except subprocess.CalledProcessError as e:
-        log.error("Failed to decrypt vault: %s", e.stderr.strip())
-        sys.exit(1)
+        log.warning("Failed to decrypt vault: %s — starting with empty secrets.", e.stderr.strip())
+        return {}
     except json.JSONDecodeError as e:
-        log.error("Vault JSON parse error: %s", e)
-        sys.exit(1)
+        log.warning("Vault JSON parse error: %s — starting with empty secrets.", e)
+        return {}
 
 
 def load_joplin_token():
