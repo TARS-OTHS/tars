@@ -34,6 +34,8 @@ services:
       - EMBEDDING_SERVICE_URL=http://embedding-service:8896
       - BIND_HOST=0.0.0.0
       - DB_PATH=/app/data/memory.db
+      - SECRETS_DIR=/app/secrets
+      - OPS_ALERTS_URL=${OPS_ALERTS_URL:-}
     ports:
       - "${DOCKER_HOST_IP:-172.17.0.1}:${MEMORY_API_PORT:-8897}:8897"
     volumes:
@@ -141,9 +143,14 @@ services:
       - EMBEDDING_SERVICE_URL=http://embedding-service:8896
       - MEMORY_DB_PATH=/app/data/memory.db
       - MEMORY_BACKUP_DIR=/app/data/backups
+      - SECRETS_DIR=/app/secrets
+      - OC_AUTH_PROFILES=/oc-auth/auth-profiles.json
+      - OPS_ALERTS_CHANNEL=${OPS_ALERTS_CHANNEL:-}
     volumes:
       - memory-data:/app/data
       - cron-logs:/var/log
+      - ${TARS_HOME:-.}/.secrets:/app/secrets
+      - ${OC_AUTH_PROFILES_DIR:-${HOME}/.openclaw/agents/main/agent}:/oc-auth:ro
     depends_on:
       memory-api:
         condition: service_healthy

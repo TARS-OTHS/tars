@@ -218,6 +218,161 @@ setup_openclaw() {
     fi
 
     print_success "OpenClaw configured"
+
+    # Import Claude token from OC into TARS secrets
+    import_claude_token
+
+    # Create ops-alerts channel
+    create_ops_alerts_channel
+}
+
+import_claude_token() {
+    echo
+    print_info "Importing Claude auth token from OpenClaw..."
+
+    # Find OC auth-profiles.json — try known locations
+    local auth_file=""
+    for candidate in \
+        "$HOME/.openclaw/agents/main/agent/auth-profiles.json" \
+        "$HOME/.openclaw/auth-profiles.json" \
+        "$HOME/.openclaw/agents/default/agent/auth-profiles.json"; do
+        if [[ -f "$candidate" ]]; then
+            auth_file="$candidate"
+            break
+        fi
+    done
+
+    if [[ -z "$auth_file" ]]; then
+        print_warn "Could not find OC auth-profiles.json"
+        print_info "TARS will retry automatically via cron once OpenClaw creates it."
+        print_info "Or run 'tars reauth' after OpenClaw is fully started."
+        OC_AUTH_PROFILES_DIR=""
+        return 0
+    fi
+
+    # Store the directory for docker-compose mount
+    OC_AUTH_PROFILES_DIR="$(dirname "$auth_file")"
+
+    # Extract token
+    local token=""
+    token=$(jq -r '
+        .profiles["anthropic:manual"].token //
+        .profiles["anthropic:default"].token //
+        .profiles["anthropic:default"].key //
+        empty
+    ' "$auth_file" 2>/dev/null || true)
+
+    if [[ -z "$token" ]]; then
+        print_warn "No Anthropic token found in OC auth — cron will retry"
+        return 0
+    fi
+
+    # Write to TARS secrets
+    mkdir -p "$TARS_HOME/.secrets"
+    echo "$token" > "$TARS_HOME/.secrets/claude-token"
+    chmod 600 "$TARS_HOME/.secrets/claude-token"
+
+    # Validate token format
+    if [[ "$token" == sk-ant-oat* ]]; then
+        print_success "Claude token imported (OAuth / Max subscription)"
+    elif [[ "$token" == sk-ant-api* ]]; then
+        print_success "Claude token imported (API key)"
+    else
+        print_warn "Claude token imported (unknown format — may still work)"
+    fi
+
+    # Quick connectivity test
+    echo -n "  Testing Claude connection..."
+    local status
+    if [[ "$token" == sk-ant-oat* ]]; then
+        status=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $token" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "anthropic-beta: oauth-2025-04-20" \
+            -H "content-type: application/json" \
+            -d '{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' \
+            https://api.anthropic.com/v1/messages 2>/dev/null || echo "000")
+    else
+        status=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -H "x-api-key: $token" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d '{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' \
+            https://api.anthropic.com/v1/messages 2>/dev/null || echo "000")
+    fi
+
+    if [[ "$status" == "200" ]]; then
+        print_success "Claude connection verified"
+    elif [[ "$status" == "401" || "$status" == "403" ]]; then
+        print_warn "Claude auth failed (HTTP $status) — token may be expired"
+        print_info "Run 'openclaw setup' to re-authenticate, then 'tars reauth'"
+    else
+        print_warn "Claude test returned HTTP $status — may work, check later"
+    fi
+}
+
+create_ops_alerts_channel() {
+    echo
+    print_info "TARS needs a channel for system alerts (auth failures, health issues)."
+
+    # Try to detect messaging platform from OC config
+    local oc_config="$HOME/.openclaw/openclaw.json"
+    local platform=""
+    if [[ -f "$oc_config" ]]; then
+        if jq -e '.channels.discord.enabled' "$oc_config" 2>/dev/null | grep -q true; then
+            platform="discord"
+        elif jq -e '.channels.slack.enabled' "$oc_config" 2>/dev/null | grep -q true; then
+            platform="slack"
+        fi
+    fi
+
+    if [[ "$platform" == "discord" ]]; then
+        echo "  Discord detected. You can either:"
+        echo "    1) Let TARS create a #tars-ops-alerts channel automatically"
+        echo "    2) Provide an existing channel ID"
+        local choice
+        choice=$(ask "Choice" "1")
+
+        if [[ "$choice" == "1" ]]; then
+            # Get first guild ID and bot token from OC config
+            local guild_id bot_token
+            guild_id=$(jq -r '.channels.discord.guilds | keys[0]' "$oc_config" 2>/dev/null || true)
+            # Get first account's token
+            bot_token=$(jq -r '.channels.discord.accounts | to_entries | map(select(.key != "default")) | .[0].value.token // empty' "$oc_config" 2>/dev/null || true)
+
+            if [[ -n "$guild_id" && -n "$bot_token" ]]; then
+                local response
+                response=$(curl -sf -X POST "https://discord.com/api/v10/guilds/${guild_id}/channels" \
+                    -H "Authorization: Bot $bot_token" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"name\": \"tars-ops-alerts\", \"type\": 0, \"topic\": \"TARS system alerts — auth failures, health issues, service status\"}" 2>/dev/null || true)
+
+                local channel_id
+                channel_id=$(echo "$response" | jq -r '.id // empty' 2>/dev/null || true)
+                if [[ -n "$channel_id" ]]; then
+                    OPS_ALERTS_CHANNEL="$channel_id"
+                    print_success "Created #tars-ops-alerts (${channel_id})"
+                else
+                    print_warn "Could not create channel — provide ID manually"
+                    OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID" "")
+                fi
+            else
+                print_warn "Could not read Discord config — provide channel ID"
+                OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID" "")
+            fi
+        else
+            OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID" "")
+        fi
+    else
+        echo "  Provide the channel ID where TARS should post system alerts:"
+        OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID" "")
+    fi
+
+    if [[ -n "${OPS_ALERTS_CHANNEL:-}" ]]; then
+        print_success "Ops alerts channel: ${OPS_ALERTS_CHANNEL}"
+    else
+        print_warn "No ops-alerts channel set — alerts will only appear in logs"
+    fi
 }
 
 # ============================================================
@@ -329,8 +484,12 @@ WEB_PROXY_PORT=8899
 DASHBOARD_PORT=8765
 DASHBOARD_API_PORT=8766
 
-# OpenClaw (manages Claude auth, messaging, model selection — no TARS coupling)
+# OpenClaw (manages Claude auth, messaging, model selection)
 OPENCLAW_VERSION=${OPENCLAW_VERSION}
+OC_AUTH_PROFILES_DIR=${OC_AUTH_PROFILES_DIR:-${HOME}/.openclaw/agents/main/agent}
+
+# Ops alerts
+${OPS_ALERTS_CHANNEL:+OPS_ALERTS_CHANNEL=${OPS_ALERTS_CHANNEL}}
 
 # Agent
 AGENT_NAME=${AGENT_NAME}

@@ -18,3 +18,6 @@
 
 # Memory context regeneration (every 30 minutes)
 */30 * * * * . /app/.env.cron && /app/scripts/memory-context-gen.sh >> /var/log/tars-cron.log 2>&1
+
+# Claude token auto-refresh — watches OC auth for changes (every 5 minutes)
+*/5 * * * * . /app/.env.cron && /app/scripts/claude-token-refresh.sh >> /var/log/tars-cron.log 2>&1
