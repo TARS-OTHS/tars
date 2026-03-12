@@ -1,0 +1,10 @@
+{
+  "agents": {
+    "default": {
+      "groups": ["ops"],
+      "role": "assistant",
+      "workspace": "/workspace",
+      "description": "Default TARS agent"
+    }
+  }
+}

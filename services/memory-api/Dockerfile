@@ -10,7 +10,7 @@ COPY package.json ./
 RUN npm install --production
 
 # Copy application files
-COPY server.js init-db.js semantic-dedup.js schema.sql anthropic-client.js ./
+COPY server.js init-db.js semantic-dedup.js schema.sql anthropic-client.js agents.json ./
 COPY migrations/ ./migrations/
 
 # Create data directory
