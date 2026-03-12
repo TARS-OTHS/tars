@@ -1,4 +1,3 @@
-import os
 #!/usr/bin/env python3
 """
 Embedding service for the memory system (ONNX Runtime version).
@@ -14,6 +13,7 @@ Uses BGE-small-en-v1.5 via ONNX Runtime (local, 384 dimensions, ~300MB RAM).
 Runs on 127.0.0.1:8896 (host-only, not exposed).
 """
 
+import os
 import json
 import sys
 import time
@@ -23,25 +23,53 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from transformers import AutoTokenizer
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "/app/models/bge-small-en-v1.5")
-ONNX_PATH = MODEL_DIR + "/onnx/model.onnx"
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
-LISTEN_HOST = "127.0.0.1"
-LISTEN_PORT = 8896
+LISTEN_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
+LISTEN_PORT = int(os.environ.get("PORT", "8896"))
 
 tokenizer = None
 session = None
 
 
+def _find_onnx_path():
+    """Find model.onnx in MODEL_DIR — supports both flat and onnx/ subdirectory layouts."""
+    for candidate in [
+        os.path.join(MODEL_DIR, "onnx", "model.onnx"),
+        os.path.join(MODEL_DIR, "model.onnx"),
+    ]:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _download_model():
+    """Download the model on first run if not present."""
+    print(f"Model not found at {MODEL_DIR}, downloading {MODEL_NAME}...", flush=True)
+    from optimum.onnxruntime import ORTModelForFeatureExtraction
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer.save_pretrained(MODEL_DIR)
+    model = ORTModelForFeatureExtraction.from_pretrained(MODEL_NAME, export=True)
+    model.save_pretrained(MODEL_DIR)
+    print(f"Model downloaded to {MODEL_DIR}", flush=True)
+
+
 def get_model():
     global tokenizer, session
     if session is None:
-        print(f"Loading {MODEL_NAME} (ONNX)...", flush=True)
+        onnx_path = _find_onnx_path()
+        if onnx_path is None:
+            _download_model()
+            onnx_path = _find_onnx_path()
+            if onnx_path is None:
+                raise RuntimeError(f"model.onnx not found in {MODEL_DIR} after download")
+
+        print(f"Loading {MODEL_NAME} (ONNX) from {onnx_path}...", flush=True)
         start = time.time()
         tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
         opts = ort.SessionOptions()
         opts.inter_op_num_threads = 2
         opts.intra_op_num_threads = 2
-        session = ort.InferenceSession(ONNX_PATH, opts, providers=["CPUExecutionProvider"])
+        session = ort.InferenceSession(onnx_path, opts, providers=["CPUExecutionProvider"])
         print(f"Model loaded in {time.time()-start:.1f}s (ONNX Runtime)", flush=True)
     return tokenizer, session
 
