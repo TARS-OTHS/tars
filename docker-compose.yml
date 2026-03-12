@@ -2,27 +2,162 @@ version: '3.8'
 
 services:
   auth-proxy:
-    build: ./services/auth-proxy
+    build:
+      context: ./services/auth-proxy
+      network: host
     env_file: .env
     ports:
       - "${DOCKER_HOST_IP:-172.17.0.1}:${AUTH_PROXY_PORT:-9100}:9100"
     volumes:
-      - ${TARS_HOME:-~}/.secrets-vault:/tars/.secrets-vault:ro
-      - ${TARS_HOME:-~}/.config/age:/tars/.config/age:ro
-      - ${TARS_HOME:-~}/.openclaw/openclaw.json:/tars/.openclaw/openclaw.json:ro
-      - ${TARS_HOME:-~}/.secrets:/tars/.secrets:ro
-      - auth-proxy-logs:/tars/.rescue-bot/logs
+      - ${TARS_HOME:-.}/.secrets-vault:/tars/.secrets-vault:ro
+      - ${TARS_HOME:-.}/.config/age:/tars/.config/age:ro
+      - ${TARS_HOME:-.}/.secrets:/tars/.secrets:ro
+      - auth-proxy-logs:/tars/logs
+    depends_on:
+      memory-api:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9100/ops/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9100/ops/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - tars
 
-  # TODO: memory-api (Talkie)
-  # TODO: embedding-service (Talkie)
-  # TODO: web-proxy (Talkie)
-  # TODO: dashboard (Talkie)
+  memory-api:
+    build:
+      context: ./services/memory-api
+      network: host
+    env_file: .env
+    environment:
+      - EMBEDDING_SERVICE_URL=http://embedding-service:8896
+      - BIND_HOST=0.0.0.0
+      - DB_PATH=/app/data/memory.db
+    ports:
+      - "${DOCKER_HOST_IP:-172.17.0.1}:${MEMORY_API_PORT:-8897}:8897"
+    volumes:
+      - memory-data:/app/data
+      - ${TARS_HOME:-.}/.secrets:/app/secrets:ro
+    depends_on:
+      embedding-service:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8897/status', r => { let d=''; r.on('data',c=>d+=c); r.on('end',()=>process.exit(r.statusCode===200?0:1)) }).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - tars
+
+  embedding-service:
+    build:
+      context: ./services/embedding-service
+      network: host
+    env_file: .env
+    environment:
+      - MODEL_DIR=/app/models/bge-small-en-v1.5
+      - BIND_HOST=0.0.0.0
+    ports:
+      - "${DOCKER_HOST_IP:-172.17.0.1}:${EMBEDDING_PORT:-8896}:8896"
+    volumes:
+      - embedding-models:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8896/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - tars
+
+  dashboard:
+    build:
+      context: ./services/dashboard
+      network: host
+    env_file: .env
+    environment:
+      - MEMORY_API_URL=http://memory-api:8897
+      - BIND_HOST=0.0.0.0
+    ports:
+      - "${DASHBOARD_PORT:-8765}:8765"
+      - "${DASHBOARD_API_PORT:-8766}:8766"
+    depends_on:
+      memory-api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - tars
+
+  web-proxy:
+    build:
+      context: ./services/web-proxy
+      network: host
+    env_file: .env
+    ports:
+      - "${DOCKER_HOST_IP:-172.17.0.1}:${WEB_PROXY_PORT:-8899}:8899"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -q --spider http://localhost:8899/ || exit 0"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - tars
+
+  credential-proxy:
+    build:
+      context: ./services/credential-proxy
+      network: host
+    env_file: .env
+    environment:
+      - PROXY_LOG_PATH=/app/logs/proxy.log
+      - BIND_HOST=0.0.0.0
+    volumes:
+      - credential-proxy-logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8899', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - tars
+
+  cron:
+    build:
+      context: ./services/cron
+      network: host
+    env_file: .env
+    environment:
+      - MEMORY_API_URL=http://memory-api:8897
+      - EMBEDDING_SERVICE_URL=http://embedding-service:8896
+      - MEMORY_DB_PATH=/app/data/memory.db
+      - MEMORY_BACKUP_DIR=/app/data/backups
+    volumes:
+      - memory-data:/app/data
+      - cron-logs:/var/log
+    depends_on:
+      memory-api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tars
 
 volumes:
   auth-proxy-logs:
+  memory-data:
+  embedding-models:
+  credential-proxy-logs:
+  cron-logs:
+
+networks:
+  tars:
+    driver: bridge
