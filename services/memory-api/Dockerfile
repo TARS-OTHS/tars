@@ -10,7 +10,8 @@ COPY package.json ./
 RUN npm install --production
 
 # Copy application files
-COPY server.js init-db.js semantic-dedup.js schema.sql anthropic-client.js agents.json ./
+COPY server.js init-db.js semantic-dedup.js schema.sql anthropic-client.js agents.json entrypoint.sh ./
+RUN chmod +x entrypoint.sh
 COPY migrations/ ./migrations/
 
 # Create data directory
@@ -24,5 +25,4 @@ ENV EMBEDDING_SERVICE_URL=http://embedding-service:8896
 
 EXPOSE 8897
 
-# Init DB if it doesn't exist, then start server
-CMD ["sh", "-c", "test -f $DB_PATH || node init-db.js && node server.js"]
+CMD ["./entrypoint.sh"]
