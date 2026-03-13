@@ -31,7 +31,7 @@ ask() {
 ask_secret() {
     local prompt="$1" val
     if $NON_INTERACTIVE; then echo "${2:-}"; return; fi
-    read -r -s -p "  $prompt: " val; echo
+    read -r -s -p "  $prompt: " val; echo >&2
     echo "$val"
 }
 
@@ -966,9 +966,15 @@ ENVEOF
     echo "  Claude auth and messaging are managed by OpenClaw."
     echo "  LLM endpoint: ${OC_LLM_URL}"
     echo
+    local dash_url
+    if [[ -n "${TAILSCALE_IP:-}" ]]; then
+        dash_url="http://${TAILSCALE_IP}:${DASHBOARD_PORT:-8765}"
+    else
+        dash_url="http://localhost:${DASHBOARD_PORT:-8765} (SSH tunnel required)"
+    fi
     echo "  Next steps:"
     echo "    1. Say hello to $AGENT_NAME on your messaging platform"
-    echo "    2. Dashboard: http://localhost:${DASHBOARD_PORT:-8765}"
+    echo "    2. Dashboard: $dash_url"
     echo "    3. Add more agents: ./scripts/add-agent.sh"
     echo "    4. Reconfigure OpenClaw: openclaw onboard"
     echo
