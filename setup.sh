@@ -992,12 +992,12 @@ ENVEOF
     chmod 600 "$TARS_HOME/.config/age/key.txt"
 
     local vault_json="{}"
-    [[ -n "${TAVILY_API_KEY:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg v "$TAVILY_API_KEY" '. + {"tavily-api-key": $v}')
-    [[ -n "${NOTION_TOKEN:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg v "$NOTION_TOKEN" '. + {"notion-token": $v}')
+    [[ -n "${TAVILY_API_KEY:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg v "$TAVILY_API_KEY" '. + {"secrets/tavily-api-key": $v}')
+    [[ -n "${NOTION_TOKEN:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg v "$NOTION_TOKEN" '. + {"secrets/notion-token": $v}')
     if [[ -n "${TRELLO_KEY:-}" && -n "${TRELLO_TOKEN:-}" ]]; then
-        vault_json=$(echo "$vault_json" | jq --arg k "$TRELLO_KEY" --arg t "$TRELLO_TOKEN" '. + {"trello-credentials.json": {"key": $k, "token": $t}}')
+        vault_json=$(echo "$vault_json" | jq --arg k "$TRELLO_KEY" --arg t "$TRELLO_TOKEN" '. + {"secrets/trello-credentials.json": {"key": $k, "token": $t}}')
     fi
-    [[ -n "${GOOGLE_CLIENT_ID:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg id "$GOOGLE_CLIENT_ID" --arg sec "${GOOGLE_CLIENT_SECRET:-}" '. + {"google-token.json": {"client_id": $id, "client_secret": $sec}}')
+    [[ -n "${GOOGLE_CLIENT_ID:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg id "$GOOGLE_CLIENT_ID" --arg sec "${GOOGLE_CLIENT_SECRET:-}" '. + {"secrets/google-token.json": {"client_id": $id, "client_secret": $sec}}')
 
     echo "$vault_json" | age -r "$age_pubkey" -o "$TARS_HOME/.secrets-vault/secrets.age"
     chmod 600 "$TARS_HOME/.secrets-vault/secrets.age"
