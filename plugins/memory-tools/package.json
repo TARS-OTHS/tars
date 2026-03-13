@@ -1,0 +1,9 @@
+{
+  "name": "@tars/memory-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "TARS Memory API plugin — native agent tools for persistent memory",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  }
+}

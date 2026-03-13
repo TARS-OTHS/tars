@@ -4,7 +4,7 @@
 # Uses watermarks to only process new messages. Skips compaction summaries.
 
 API="${MEMORY_API_URL:-http://memory-api:8897}"
-OC_AGENTS_DIR="${OPENCLAW_DIR:-/app/config}/agents"
+OC_AGENTS_DIR="${OPENCLAW_DIR:-/oc-config}/agents"
 WATERMARK_DIR="${AGENT_SERVICES_DIR:-/app}/watermarks"
 MIN_CONTENT_LENGTH=50  # Skip very short messages
 MAX_CHARS_PER_RUN=8000  # Cap input to extraction per run to limit Claude CLI cost
@@ -151,11 +151,14 @@ print(json.dumps({'conversation': conv, 'agent': '$AGENT_NAME', 'session_id': '$
 done
 
 # Update session index as side effect
-python3 << "IDXEOF"
+IDX_DIR="${AGENT_SERVICES_DIR:-/app/data}"
+python3 << IDXEOF
 import json, glob, os
 
-agents_dir = os.path.expanduser("~/.openclaw/agents")
-idx_path = os.path.expanduser("~/agent-services/session-index.json")
+agents_dir = "${OC_AGENTS_DIR}"
+idx_path = os.path.join("${IDX_DIR}", "session-index.json")
+
+os.makedirs(os.path.dirname(idx_path), exist_ok=True)
 
 # Load existing index
 try:
@@ -173,7 +176,6 @@ for agent_dir in sorted(glob.glob(agents_dir + "/*")):
         if "bak" in sf:
             continue
         sid = os.path.basename(sf).replace(".jsonl", "")
-        # Only reindex if not already indexed or file changed
         mtime = os.path.getmtime(sf)
         if sid in index and index[sid].get("mtime") == mtime:
             continue

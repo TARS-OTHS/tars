@@ -1,7 +1,7 @@
 FROM ubuntu:24.04
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends cron curl sqlite3 jq gettext-base && \
+    apt-get install -y --no-install-recommends cron curl sqlite3 jq gettext-base python3 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

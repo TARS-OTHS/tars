@@ -5,8 +5,8 @@
 # Only processes sessions active in the last 60 min.
 
 API="${MEMORY_API_URL:-http://memory-api:8897}"
-OC_AGENTS_DIR="${OPENCLAW_DIR:-/app/config}/agents"
-AUTH_PROFILES="${OPENCLAW_DIR:-/app/config}/agents/main/agent/auth-profiles.json"
+OC_AGENTS_DIR="${OPENCLAW_DIR:-/oc-config}/agents"
+AUTH_PROFILES="${OC_AUTH_PROFILES:-${OPENCLAW_DIR:-/oc-config}/agents/main/agent/auth-profiles.json}"
 MAX_CHARS=3000          # Cap input to Claude CLI to limit cost
 ACTIVE_WINDOW_MIN=60    # Only process sessions modified within this many minutes
 MAX_MESSAGES=12         # Read last N messages from session tail

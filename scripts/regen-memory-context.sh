@@ -36,7 +36,10 @@ now_utc=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 # Check service health
 check_service() {
     local url="$1" name="$2"
-    if curl -sf "$url" > /dev/null 2>&1; then
+    # Use -o /dev/null -w '%{http_code}' to check any response (proxies return 403 on bare /)
+    local code
+    code=$(curl -so /dev/null -w '%{http_code}' --connect-timeout 3 "$url" 2>/dev/null || echo "000")
+    if [ "$code" != "000" ]; then
         echo "- **$name**: healthy"
     else
         echo "- **$name**: DOWN"

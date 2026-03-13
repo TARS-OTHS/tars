@@ -3,416 +3,209 @@
 # Runs every 30 min via cron. Fully mechanical — no agent cooperation needed.
 # OC auto-injects workspace files into agent context at session start.
 #
-# Each agent gets tailored context:
-#   talkie  — full infrastructure, all Discord channels, all services, all crons
-#   newsbot — memory tree (newsbot-scoped), research Discord channels, core services
-#   luna    — no shared memory DB, Ops + Learning Discord channels, minimal services
-#   nova    — no shared memory DB, Ops + Learning Discord channels, minimal services
+# Dynamically discovers agents from the OC agents directory.
+# Each agent gets: session state, memory stats, service health, memory API reference.
 
 API="${MEMORY_API_URL:-http://memory-api:8897}"
-AGENTS_JSON="${AGENT_SERVICES_DIR:-/app}/agents.json"
+OC_DIR="${OPENCLAW_DIR:-/oc-config}"
+OC_AGENTS_DIR="$OC_DIR/agents"
 MAX_SIZE=6144  # ~6KB cap per file
 
 log() { echo "[$(date -Iseconds)] context-gen: $*"; }
 
-# Read agents from agents.json
-AGENTS=$(python3 -c "
-import json
-with open('$AGENTS_JSON') as f:
-    data = json.load(f)
-for name, info in data['agents'].items():
-    ws = info.get('workspace')
-    if ws:
-        print(f'{name}|{ws}')
-")
-
-if [ -z "$AGENTS" ]; then
-    log "ERROR: No agents with workspaces found"
+# Discover agents from OC directory structure
+if [ ! -d "$OC_AGENTS_DIR" ]; then
+    log "ERROR: OC agents directory not found at $OC_AGENTS_DIR"
     exit 1
 fi
 
-# Fetch tree (global, shared across agents — but only included for agents that use shared memory)
-TREE=$(curl -sf "$API/memory/tree" 2>/dev/null)
-if [ -z "$TREE" ]; then
-    log "WARNING: Could not fetch tree, using placeholder"
-    TREE='{"tree": [], "memory_count": 0}'
-fi
+AGENTS=""
+for AGENT_DIR in "$OC_AGENTS_DIR"/*/; do
+    [ -d "$AGENT_DIR" ] || continue
+    AGENT_NAME=$(basename "$AGENT_DIR")
+    # Skip hidden directories
+    case "$AGENT_NAME" in .*) continue ;; esac
 
-# Generate tree stats
-TREE_SUMMARY=$(python3 -c "
-import json, sys
-try:
-    data = json.loads(sys.stdin.read())
-except:
-    data = {}
-tree = data.get('tree', [])
-count = data.get('memory_count', 0)
-generated = data.get('generated_at', 'unknown')[:19]
-
-if isinstance(tree, list):
-    branches = len(tree)
-    names = [b.get('branch', '?') for b in tree]
-elif isinstance(tree, dict):
-    branches = len(tree)
-    names = list(tree.keys())
-else:
-    branches = 0
-    names = []
-
-print(f'{count} memories in {branches} branches (generated {generated})')
-print(f'Branches: {\", \".join(names[:15])}')
-print(f'Full tree: GET ${MEMORY_API_URL:-http://memory-api:8897}/memory/tree')
-" 2>/dev/null <<< "$TREE")
-
-# --- Gather shared raw data once ---
-log "Gathering system map data..."
-
-# Discord channels (rescue bot token) — fetch once, filter per agent
-DISCORD_TOKEN_FILE="$HOME/.secrets/rescue-discord-token"
-DISCORD_GUILD="1468961665390350336"
-DISCORD_RAW=""
-if [ -f "$DISCORD_TOKEN_FILE" ]; then
-    DISCORD_RAW=$(curl -sf "https://discord.com/api/v10/guilds/$DISCORD_GUILD/channels" \
-        -H "Authorization: Bot $(cat "$DISCORD_TOKEN_FILE")" 2>/dev/null)
-fi
-
-# Services (from ss) — fetch once, filter per agent
-SERVICES_RAW=$(ss -tlnp 2>/dev/null | grep -v 'State')
-
-# Cron schedule — fetch once
-CRON_RAW=$(crontab -l 2>/dev/null | grep -v '^#' | grep -v '^$')
-
-# Agent registry — same for all
-AGENT_REGISTRY=$(python3 -c "
-import json
-with open('$AGENTS_JSON') as f:
-    data = json.load(f)
-for name, info in data['agents'].items():
-    role = info.get('role', '?')
-    groups = ', '.join(info.get('groups', []))
-    desc = info.get('description', '')[:60]
-    print(f'| {name} | {role} | {groups} | {desc} |')
-" 2>/dev/null)
-
-log "System map data gathered"
-
-# --- Per-agent channel category filters ---
-# talkie: all channels
-# newsbot: Ops channels only (research, system, ops-alerts)
-# luna: Ops channels + LEARNING channels
-# nova: Ops channels + LEARNING channels
-
-get_discord_channels() {
-    local agent="$1"
-    if [ -z "$DISCORD_RAW" ]; then
-        echo "_No Discord data available_"
-        return
+    # Find workspace — check agent subdir, then OC workspace
+    WORKSPACE=""
+    if [ -d "$AGENT_DIR/workspace" ]; then
+        WORKSPACE="$AGENT_DIR/workspace"
+    elif [ -d "$OC_DIR/workspace" ]; then
+        WORKSPACE="$OC_DIR/workspace"
     fi
-    echo "$DISCORD_RAW" | python3 -c "
-import json, sys
 
-agent = '$agent'
-try:
-    channels = json.load(sys.stdin)
-except:
-    print('_Could not parse channels_')
-    sys.exit(0)
+    if [ -n "$WORKSPACE" ]; then
+        AGENTS="${AGENTS}${AGENT_NAME}|${WORKSPACE}
+"
+    fi
+done
 
-cats = {}
-texts = []
-for ch in channels:
-    if ch['type'] == 4:
-        cats[ch['id']] = ch['name']
-    elif ch['type'] == 0:
-        texts.append(ch)
+if [ -z "$AGENTS" ]; then
+    log "ERROR: No agents with workspaces found in $OC_AGENTS_DIR"
+    exit 1
+fi
 
-# Define category filters per agent
-# None means 'all channels'
-filters = {
-    'talkie': None,
-    'rescue': None,
-    'newsbot': ['Ops'],
-    'luna': ['Ops', 'LEARNING'],
-    'nova': ['Ops', 'LEARNING'],
+# Count discovered agents
+AGENT_COUNT=$(echo "$AGENTS" | grep -c '|')
+log "Discovered $AGENT_COUNT agent(s)"
+
+# --- Gather shared data once ---
+log "Gathering system data..."
+
+# Memory API status
+STATUS_JSON=$(curl -sf "$API/status" 2>/dev/null || echo '{}')
+
+# Parse stats with jq
+total=$(echo "$STATUS_JSON" | jq -r '.memory_stats.total // 0')
+semantic=$(echo "$STATUS_JSON" | jq -r '.memory_stats.by_type.semantic // 0')
+episodic=$(echo "$STATUS_JSON" | jq -r '.memory_stats.by_type.episodic // 0')
+procedural=$(echo "$STATUS_JSON" | jq -r '.memory_stats.by_type.procedural // 0')
+avg_conf=$(echo "$STATUS_JSON" | jq -r '.memory_stats.avg_confidence // 0')
+pinned=$(echo "$STATUS_JSON" | jq -r '.memory_stats.pinned // 0')
+archived=$(echo "$STATUS_JSON" | jq -r '.memory_stats.archived // 0')
+inserts_24h=$(echo "$STATUS_JSON" | jq -r '.memory_stats.last_24h.inserts // 0')
+updates_24h=$(echo "$STATUS_JSON" | jq -r '.memory_stats.last_24h.updates // 0')
+db_size=$(echo "$STATUS_JSON" | jq -r '.memory_stats.db_size_mb // 0')
+uptime=$(echo "$STATUS_JSON" | jq -r '.uptime // "unknown"')
+
+# Service health checks
+check_service() {
+    local url="$1" name="$2"
+    if curl -sf "$url" > /dev/null 2>&1; then
+        echo "- **$name**: healthy"
+    else
+        echo "- **$name**: DOWN"
+    fi
 }
 
-allowed_cats = filters.get(agent)
+HEALTH=""
+HEALTH="${HEALTH}$(check_service "$API/status" "Memory API")
+"
+HEALTH="${HEALTH}$(check_service "${EMBEDDING_SERVICE_URL:-http://embedding-service:8896}/health" "Embedding Service")
+"
 
-for ch in sorted(texts, key=lambda c: (c.get('parent_id','') or '', c.get('position',0))):
-    cat = cats.get(ch.get('parent_id',''), 'uncategorized')
-    # Strip emoji prefix for matching (e.g. '🚨 Ops' -> 'Ops')
-    cat_clean = cat.split(' ', 1)[-1] if ' ' in cat else cat
-    if allowed_cats is not None and cat_clean not in allowed_cats:
-        continue
-    print(f'| #{ch[\"name\"]} | \`{ch[\"id\"]}\` | {cat} |')
-" 2>/dev/null
-}
+# Current time
+NOW_UTC=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
-# --- Per-agent service filters ---
-# talkie/rescue: all known services
-# newsbot: memory API, auth proxy, credential proxy
-# luna/nova: auth proxy, credential proxy
+# Build agent registry
+AGENT_REGISTRY=""
+while IFS='|' read -r name ws; do
+    [ -z "$name" ] && continue
+    AGENT_REGISTRY="${AGENT_REGISTRY}| $name | $ws |
+"
+done <<< "$AGENTS"
 
-get_services() {
-    local agent="$1"
-    python3 -c "
-import sys, re
-
-agent = '$agent'
-
-all_known = {
-    '18789': ('OpenClaw Gateway', 'lan'),
-    '18791': ('OC Gateway internal', 'loopback'),
-    '18792': ('OC Gateway internal', 'loopback'),
-    '8080': ('Signal CLI daemon', 'loopback'),
-    '8897': ('Agent Services API (memory)', 'docker bridge'),
-    '8898': ('Agent Services (secondary)', 'docker bridge'),
-    '8899': ('Credential Proxy', 'all'),
-    '8765': ('Dashboard (static)', 'tailscale'),
-    '8766': ('Dashboard (API)', 'tailscale'),
-    '9100': ('Auth Proxy', 'docker bridge'),
-    '2222': ('SSH', 'all'),
-}
-
-# Which ports each agent cares about
-port_filters = {
-    'talkie': None,   # all
-    'rescue': None,   # all
-    'newsbot': ['8897', '8898', '9100', '8899'],
-    'luna':    ['9100', '8899'],
-    'nova':   ['9100', '8899'],
-}
-
-allowed = port_filters.get(agent)
-raw = sys.stdin.read()
-
-for line in raw.strip().split('
-'):
-    if not line.strip():
-        continue
-    m = re.search(r'(\S+):(\d+)\s', line)
-    if m:
-        bind, port = m.group(1), m.group(2)
-        if port in all_known:
-            if allowed is not None and port not in allowed:
-                continue
-            name, scope = all_known[port]
-            print(f'| {name} | \`{port}\` | {scope} |')
-" <<< "$SERVICES_RAW" 2>/dev/null
-}
-
-# --- Per-agent cron filters ---
-# talkie/rescue: all crons
-# newsbot: news-related crons + memory crons
-# luna/nova: no crons (not relevant to tutoring)
-
-get_crons() {
-    local agent="$1"
-    python3 -c "
-import sys
-
-agent = '$agent'
-
-# newsbot only sees news-related and memory crons
-newsbot_keywords = ['news', 'breaking', 'memory', 'context-gen']
-
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    parts = line.split(None, 5)
-    if len(parts) < 6:
-        continue
-    sched = ' '.join(parts[:5])
-    cmd = parts[5].split('>>')[0].split('2>&1')[0].strip()
-    name = cmd.split('/')[-1]
-
-    if agent in ('luna', 'nova'):
-        continue  # tutors don't need cron info
-    elif agent == 'newsbot':
-        if not any(kw in name.lower() for kw in newsbot_keywords):
-            continue
-
-    print(f'| \`{sched}\` | {name} |')
-" <<< "$CRON_RAW" 2>/dev/null
-}
+log "System data gathered"
 
 # --- Generate per-agent files ---
 while IFS='|' read -r AGENT WORKSPACE; do
+    [ -z "$AGENT" ] && continue
     log "Generating for $AGENT -> $WORKSPACE"
 
-    # Ensure workspace exists
     mkdir -p "$WORKSPACE" 2>/dev/null
 
-    # Fetch agent-scoped context from memory API
-    CONTEXT=$(curl -sf "$API/memory/context?agent=$AGENT" 2>/dev/null)
+    # Fetch agent-scoped session state
+    STATE_JSON=$(curl -sf "$API/memory/session-state/$AGENT" 2>/dev/null || echo '{}')
+    task_summary=$(echo "$STATE_JSON" | jq -r '.state.task_summary // "No session state saved yet"')
+    session_status=$(echo "$STATE_JSON" | jq -r '.state.status // "unknown"')
+    session_context=$(echo "$STATE_JSON" | jq -r '.state.context // ""')
+    session_updated=$(echo "$STATE_JSON" | jq -r '.updated_at // "never"')
 
-    # Fetch session state
-    STATE=$(curl -sf "$API/memory/session-state/$AGENT" 2>/dev/null)
+    # Fetch agent-scoped context (pinned + recent)
+    CONTEXT_JSON=$(curl -sf "$API/memory/context?agent=$AGENT" 2>/dev/null || echo '{}')
 
-    # Agent-specific Discord channels
-    DISCORD_CHANNELS=$(get_discord_channels "$AGENT")
-    if [ -z "$DISCORD_CHANNELS" ]; then
-        DISCORD_CHANNELS="_No channels available_"
+    # Format pinned memories
+    PINNED_SECTION=""
+    pinned_count=$(echo "$CONTEXT_JSON" | jq '.pinned | length // 0')
+    if [ "$pinned_count" -gt 0 ]; then
+        PINNED_SECTION="## Pinned Memories
+
+"
+        PINNED_SECTION="${PINNED_SECTION}$(echo "$CONTEXT_JSON" | jq -r '.pinned[:10][] | "- [\(.category // "general")] \(.content[:120])"')"
+        PINNED_SECTION="${PINNED_SECTION}
+
+"
     fi
 
-    # Agent-specific services
-    SERVICES=$(get_services "$AGENT")
+    # Format recent memories
+    RECENT_SECTION=""
+    recent_count=$(echo "$CONTEXT_JSON" | jq '.recent | length // 0')
+    if [ "$recent_count" -gt 0 ]; then
+        RECENT_SECTION="## Recent Memories
 
-    # Agent-specific crons
-    CRON_SCHEDULE=$(get_crons "$AGENT")
+"
+        RECENT_SECTION="${RECENT_SECTION}$(echo "$CONTEXT_JSON" | jq -r '.recent[:8][] | "- [\(.category // "general")] \(.content[:120])"')"
+        RECENT_SECTION="${RECENT_SECTION}
 
-    # Decide whether to include memory tree
-    # Luna and Nova use local file memory, not shared DB
-    INCLUDE_MEMORY_TREE=true
-    if [ "$AGENT" = "luna" ] || [ "$AGENT" = "nova" ]; then
-        INCLUDE_MEMORY_TREE=false
+"
     fi
 
-    # Build the file
+    # Format conflicts
+    CONFLICTS_SECTION=""
+    conflicts_count=$(echo "$CONTEXT_JSON" | jq '.conflicts | length // 0')
+    if [ "$conflicts_count" -gt 0 ]; then
+        CONFLICTS_SECTION="## Unresolved Conflicts ($conflicts_count)
+
+"
+        CONFLICTS_SECTION="${CONFLICTS_SECTION}$(echo "$CONTEXT_JSON" | jq -r '.conflicts[:5][] | "- \(.description[:120])"')"
+        CONFLICTS_SECTION="${CONFLICTS_SECTION}
+
+"
+    fi
+
     OUTFILE="$WORKSPACE/MEMORY_CONTEXT.md"
 
-    python3 << PYEOF > "$OUTFILE"
-import json, sys
-from datetime import datetime, timezone, timedelta
+    cat > "$OUTFILE" << EOF
+# Memory Context (Auto-Generated)
 
-agent = "$AGENT"
-include_tree = "$INCLUDE_MEMORY_TREE" == "true"
+_Updated: $NOW_UTC — regenerated every 30 min by cron_
 
-utc_now = datetime.now(timezone.utc)
-cambodia_tz = timezone(timedelta(hours=7))
-cambodia_now = utc_now.astimezone(cambodia_tz)
-hour = cambodia_now.hour
-if 5 <= hour < 12:
-    period = "Morning"
-elif 12 <= hour < 17:
-    period = "Afternoon"
-elif 17 <= hour < 22:
-    period = "Evening"
-else:
-    period = "Night"
+## Last Session State
 
-print("# Memory Context (Auto-Generated)")
-print(f"_Updated: {utc_now.strftime('%Y-%m-%d %H:%M UTC')} — regenerated every 30 min by cron_")
-print()
-print("## Current Time Context")
-print(f"UTC: {utc_now.strftime('%Y-%m-%d %H:%M')} | Cambodia (UTC+7): {cambodia_now.strftime('%H:%M')} | Period: {period}")
-print()
+- **Task:** $task_summary
+- **Status:** $session_status
+- **Context:** $session_context
+- **Last saved:** $session_updated
 
-# Session state
-try:
-    state = json.loads('''$(echo "$STATE" | sed "s/'/\\'/g")''')
-    if state.get("state"):
-        s = state["state"]
-        print("## Last Session State")
-        print(f"- **Task:** {s.get('task_summary', 'unknown')}")
-        print(f"- **Status:** {s.get('status', 'unknown')}")
-        if s.get("context"):
-            print(f"- **Context:** {s['context']}")
-        print(f"- _Saved: {state.get('updated_at', 'unknown')}_")
-        print()
-except:
-    pass
+## Memory Overview
 
-# Memory tree (only for agents that use shared memory DB)
-if include_tree:
-    print("## Memory Tree")
-    tree_text = '''$TREE_SUMMARY'''
-    if tree_text.strip():
-        print(tree_text)
-    else:
-        print("_No tree available — query: GET ${MEMORY_API_URL:-http://memory-api:8897}/memory/tree_")
-    print()
+| Metric | Value |
+|--------|-------|
+| Total memories | $total |
+| Semantic | $semantic |
+| Episodic | $episodic |
+| Procedural | $procedural |
+| Avg confidence | $avg_conf |
+| Pinned | $pinned |
+| Archived | $archived |
+| Inserts (24h) | $inserts_24h |
+| Updates (24h) | $updates_24h |
+| DB size | ${db_size}MB |
 
-    # Context (pinned, recent, conflicts)
-    try:
-        ctx = json.loads('''$(echo "$CONTEXT" | sed "s/'/\\'/g")''')
+${PINNED_SECTION}${RECENT_SECTION}${CONFLICTS_SECTION}## Service Health
 
-        pinned = ctx.get("pinned", [])
-        if pinned:
-            print("## Pinned Memories")
-            for m in pinned[:10]:
-                print(f"- [{m.get('category','')}] {m.get('content','')[:120]}")
-            print()
+$HEALTH
 
-        recent = ctx.get("recent", [])
-        if recent:
-            print("## Recent Memories")
-            for m in recent[:8]:
-                print(f"- [{m.get('category','')}] {m.get('content','')[:120]}")
-            print()
+## Agents
 
-        conflicts = ctx.get("conflicts", [])
-        if conflicts:
-            print(f"## Unresolved Conflicts ({len(conflicts)})")
-            for c in conflicts[:5]:
-                print(f"- {c.get('description','')[:120]}")
-            print()
-    except:
-        pass
-else:
-    print("## Memory")
-    print("_This agent uses local file-based memory (not shared memory DB)._")
-    print()
+| Name | Workspace |
+|------|-----------|
+$AGENT_REGISTRY
 
-# System Map
-print("## System Map (Auto-Generated)")
-print()
+## Memory API
 
-discord_channels = '''$DISCORD_CHANNELS'''
-if discord_channels.strip() and discord_channels.strip() != "_No channels available_":
-    print("### Discord Channels")
-    print("| Channel | ID | Category |")
-    print("|---------|----|---------:|")
-    print(discord_channels)
-    print()
+Query memories: \`GET $API/memory/search?q=<query>&agent=$AGENT\`
+Semantic search: \`POST $API/memory/search/semantic\` with \`{"query": "...", "agent": "$AGENT"}\`
+Save session state: \`POST $API/memory/session-state\` with \`{"agent": "$AGENT", "task_summary": "...", "status": "...", "context": "..."}\`
 
-services = '''$SERVICES'''
-if services.strip():
-    print("### Services")
-    print("| Service | Port | Bind |")
-    print("|---------|------|-----:|")
-    print(services)
-    print()
-
-cron_schedule = '''$CRON_SCHEDULE'''
-if cron_schedule.strip():
-    print("### Cron Schedule")
-    print("| Schedule | Script |")
-    print("|----------|-------:|")
-    print(cron_schedule)
-    print()
-
-print("### Agents")
-print("| Name | Role | Groups | Description |")
-print("|------|------|--------|------------:|")
-print('''$AGENT_REGISTRY''')
-print()
-
-# Memory API — only for agents that use shared memory
-if include_tree:
-    print("## Memory API")
-    print(f"Query memories: \`GET ${MEMORY_API_URL:-http://memory-api:8897}/memory/search?q=<query>&agent={agent}\`")
-    print(f"Save session state: \`POST ${MEMORY_API_URL:-http://memory-api:8897}/memory/session-state\` with \`{{agent, task_summary, status, context}}\`")
-PYEOF
+---
+_Read TOOLS.md for endpoint details. Read MEMORY.md for memory API usage._
+EOF
 
     # Size check
     SIZE=$(wc -c < "$OUTFILE")
     if [ "$SIZE" -gt "$MAX_SIZE" ]; then
-        log "WARNING: $OUTFILE is ${SIZE}B (>${MAX_SIZE}B), truncating recent memories"
-        python3 -c "
-import sys
-with open(sys.argv[1]) as f:
-    c = f.read()
-start = c.find('## Recent Memories')
-if start != -1:
-    end = c.find('## ', start + 1)
-    if end != -1:
-        c = c[:start] + c[end:]
-with open(sys.argv[1], 'w') as f:
-    f.write(c)
-" "$OUTFILE"
-        SIZE=$(wc -c < "$OUTFILE")
+        log "WARNING: $OUTFILE is ${SIZE}B (>${MAX_SIZE}B)"
     fi
 
     log "Written $OUTFILE (${SIZE}B)"

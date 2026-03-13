@@ -676,15 +676,17 @@ configure_openclaw() {
     }
   },
   "plugins": {
+    "load": {
+      "paths": ["${TARS_HOME}/plugins/memory-tools"]
+    },
     "entries": {
-      "memory-recall": {
+      "tars-memory": {
         "enabled": true,
         "config": {
           "memoryApiUrl": "http://${DOCKER_HOST_IP}:${MEMORY_API_PORT:-8897}",
-          "maxResults": 5,
-          "minScore": 0.3,
-          "includeSessionState": true,
-          "includePinned": true
+          "autoRecall": true,
+          "autoSessionState": true,
+          "maxRecallResults": 5
         }
       }
     }
@@ -1123,8 +1125,9 @@ All services run in Docker on this host. Internal access via Docker bridge IP \`
 ### Memory API
 - **URL:** \`http://${DOCKER_HOST_IP}:${MEMORY_API_PORT:-8897}\`
 - **Health:** \`GET /status\`
-- **Endpoints:** Store, retrieve, search memories with semantic embeddings
+- **Native Tools:** \`memory_search\`, \`memory_semantic_search\`, \`memory_store\`, \`memory_context\`, \`session_state_save\`, \`session_state_get\`
 - Persistent SQLite database with 384-dimension vector search
+- **Use the native tools** — they handle HTTP for you. See MEMORY.md for details.
 
 ### Embedding Service
 - **URL:** \`http://${DOCKER_HOST_IP}:${EMBEDDING_PORT:-8896}\`
@@ -1151,7 +1154,14 @@ All services run in Docker on this host. Internal access via Docker bridge IP \`
 - Send messages, manage tasks, view system health, ops alerts
 
 ### Cron
-- Scheduled tasks: memory backups, health checks, maintenance
+- Memory lifecycle: decay, archive, purge (every 6h)
+- Memory backup (every 6h)
+- Session state auto-capture (every 15min)
+- Memory context regeneration (every 30min)
+- Session fact extraction (every 10/40min)
+- Memory promotion (every 12h)
+- Alert monitoring (every 30min)
+- Claude token refresh (every 5min)
 
 ## External Integrations
 

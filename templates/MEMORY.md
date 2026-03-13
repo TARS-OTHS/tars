@@ -2,15 +2,40 @@
 
 You have a persistent memory database. It survives session resets. Use it.
 
+## Native Memory Tools
+
+You have these tools available — use them directly (no HTTP needed):
+
+| Tool | Purpose |
+|------|---------|
+| `memory_search` | Full-text search. Params: `query`, `limit`, `type`, `after` |
+| `memory_semantic_search` | Embedding-based similarity search. Finds conceptually related memories. |
+| `memory_store` | Store a memory. Params: `content`, `type`, `category`, `confidence`, `tags`, `pinned` |
+| `memory_context` | Get pinned + recent + conflicts + tasks overview |
+| `session_state_save` | Save session state. Params: `task_summary`, `status`, `context` |
+| `session_state_get` | Retrieve last session state |
+
+### Examples
+
+```
+memory_search(query: "deployment config", limit: 5)
+memory_semantic_search(query: "how to handle authentication")
+memory_store(content: "User prefers Python over Node", type: "semantic", category: "user")
+session_state_save(task_summary: "Fixing auth proxy", status: "active", context: "Token refresh failing, investigating logs")
+```
+
 ## Architecture
 
-- **Memory API**: `http://172.17.0.1:8897`
-- **Embedding service**: `http://172.17.0.1:8896` (BGE-small-en-v1.5, 384-dim, ONNX)
+- **Memory API**: `http://DOCKER_HOST_IP:8897`
+- **Embedding service**: `http://DOCKER_HOST_IP:8896` (BGE-small-en-v1.5, 384-dim, ONNX)
 - **Storage**: SQLite + FTS5 full-text search + vector embeddings
 - **Types**: semantic, episodic, procedural
 - **Categories**: system, project, episodic, user, business, people, infrastructure, procedural, session, agent
+- **Auto-recall**: Relevant memories are automatically injected into your context at session start
 
-## Quick Reference
+## HTTP API Reference
+
+For advanced use cases, the full HTTP API is also available:
 
 ### Search memories (full-text)
 ```
@@ -114,6 +139,7 @@ The `/memory/write` endpoint supports these tables:
 - **Purge**: Archived > 30 days -> deleted
 - **Pinned memories**: Never decay, never archive, never purge
 - **Dedup**: Duplicates (>= 0.80 similarity) -> lower quality archived
+- **Cron jobs**: Lifecycle runs every 6h, backups every 6h, promotion every 12h
 
 ## Rules
 
@@ -121,3 +147,4 @@ The `/memory/write` endpoint supports these tables:
 - Never say you have "no memory" or "can't remember" — search first.
 - Save session state on every task transition.
 - Read session state at session start.
+- Use `memory_store` and `memory_search` tools — they're faster and less error-prone than HTTP.

@@ -7,7 +7,7 @@ These rules are mandatory. Read them at session start.
 Before responding to ANY message:
 1. Read MEMORY_CONTEXT.md for current state
 2. Read TOOLS.md for available services and endpoints
-3. Query memory DB for session state: `GET http://DOCKER_HOST_IP:8897/memory/session-state/main`
+3. Use `session_state_get` tool to check your last session state
 
 ## Rule 1: No Sycophancy
 
@@ -15,38 +15,41 @@ Be direct. No "Great question!" or "I would be happy to help!" — just help.
 
 ## Rule 2: Save Session State
 
-On task transitions and before long pauses, save your current state:
+On task transitions and before long pauses, use the `session_state_save` tool:
 ```
-POST http://DOCKER_HOST_IP:8897/memory/session-state
-{
-  "agent": "main",
-  "task_summary": "description of current work, context, next steps"
-}
+session_state_save(
+  task_summary: "what you're working on",
+  status: "active",
+  context: "key details, file names, decisions, next steps"
+)
 ```
 
 ## Rule 3: Use Memory
 
-Store important facts, decisions, and learned information:
+You have native memory tools — use them directly:
+
+**Search memories:**
 ```
-POST http://DOCKER_HOST_IP:8897/memory/write
-{
-  "table": "memories",
-  "action": "insert",
-  "agent": "main",
-  "data": {
-    "content": "what to remember",
-    "type": "semantic",
-    "category": "general",
-    "confidence": 0.8,
-    "tags": ["relevant", "tags"]
-  }
-}
+memory_search(query: "what to find", limit: 10)
+memory_semantic_search(query: "conceptual search by meaning")
 ```
 
-Search before asking questions the user may have already answered:
+**Store information:**
 ```
-GET http://DOCKER_HOST_IP:8897/memory/search?q=query&agent=main&limit=5
+memory_store(
+  content: "what to remember",
+  type: "semantic",
+  category: "project",
+  tags: ["relevant", "tags"]
+)
 ```
+
+**Get full context (pinned + recent + conflicts + tasks):**
+```
+memory_context()
+```
+
+Search before asking questions the user may have already answered.
 
 ## Rule 4: Credentials Stay in the Vault
 

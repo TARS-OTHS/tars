@@ -1,64 +1,77 @@
 #!/bin/bash
+# memory-lifecycle.sh — Decay, archive, and purge old memories
+# Runs every 6 hours via cron. Uses sqlite3 CLI directly.
+
 DB_PATH="${MEMORY_DB_PATH:-/app/data/memory.db}"
 
-cd ${AGENT_SERVICES_DIR:-/app}
-node -e "
-const Database = require('better-sqlite3');
-const db = new Database('$DB_PATH');
-db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 5000');
+log() { echo "[$(date -Iseconds)] lifecycle: $*"; }
 
-// Category-based decay with access floor
-const decay = db.prepare(\`
-    UPDATE memories
-    SET confidence = MAX(
-        CASE
-            WHEN access_count >= 3 THEN 0.3
-            WHEN category IN ('user', 'people') THEN 0.2
-            WHEN category IN ('system') THEN 0.1
-            ELSE 0.05
-        END,
-        confidence - CASE
-            WHEN category = 'user' THEN 0.002
-            WHEN category = 'people' THEN 0.003
-            WHEN category = 'system' THEN 0.005
-            ELSE 0.01
-        END
-    ),
-    updated_at = CURRENT_TIMESTAMP
-    WHERE pinned = 0
-    AND last_accessed < datetime('now', '-7 days')
-    AND scope != 'archived'
-\`).run();
-console.log('Decay applied to', decay.changes, 'memories');
+if [ ! -f "$DB_PATH" ]; then
+    log "WARNING: DB not found at $DB_PATH — skipping"
+    exit 0
+fi
 
-// Archive old low-confidence memories
-const archive = db.prepare(\`
-    UPDATE memories
-    SET scope = 'archived'
-    WHERE pinned = 0
-    AND access_count < 3
-    AND confidence <= 0.1
-    AND last_accessed < datetime('now', '-60 days')
-    AND scope != 'archived'
-\`).run();
-console.log('Archived', archive.changes, 'memories');
+# Category-based decay with access floor
+decay=$(sqlite3 "$DB_PATH" << 'SQL'
+UPDATE memories
+SET confidence = MAX(
+    CASE
+        WHEN access_count >= 3 THEN 0.3
+        WHEN category IN ('user', 'people') THEN 0.2
+        WHEN category IN ('system') THEN 0.1
+        ELSE 0.05
+    END,
+    confidence - CASE
+        WHEN category = 'user' THEN 0.002
+        WHEN category = 'people' THEN 0.003
+        WHEN category = 'system' THEN 0.005
+        ELSE 0.01
+    END
+),
+updated_at = CURRENT_TIMESTAMP
+WHERE pinned = 0
+AND last_accessed < datetime('now', '-7 days')
+AND scope != 'archived';
+SELECT changes();
+SQL
+)
+log "Decay applied to $decay memories"
 
-// Purge archived memories older than 30 days (backups retain 7 days of full snapshots)
-const purge = db.prepare(\`
-    DELETE FROM memories
-    WHERE scope = 'archived'
-    AND updated_at < datetime('now', '-30 days')
-\`).run();
-if (purge.changes > 0) console.log('Purged', purge.changes, 'archived memories older than 30 days');
+# Archive old low-confidence memories
+archive=$(sqlite3 "$DB_PATH" << 'SQL'
+UPDATE memories
+SET scope = 'archived'
+WHERE pinned = 0
+AND access_count < 3
+AND confidence <= 0.1
+AND last_accessed < datetime('now', '-60 days')
+AND scope != 'archived';
+SELECT changes();
+SQL
+)
+log "Archived $archive memories"
 
-// Also purge changelog entries older than 30 days to prevent unbounded growth
-const purgeLog = db.prepare(\`
-    DELETE FROM changelog
-    WHERE timestamp < datetime('now', '-30 days')
-\`).run();
-if (purgeLog.changes > 0) console.log('Purged', purgeLog.changes, 'old changelog entries');
+# Purge archived memories older than 30 days
+purge=$(sqlite3 "$DB_PATH" << 'SQL'
+DELETE FROM memories
+WHERE scope = 'archived'
+AND updated_at < datetime('now', '-30 days');
+SELECT changes();
+SQL
+)
+if [ "$purge" -gt 0 ] 2>/dev/null; then
+    log "Purged $purge archived memories older than 30 days"
+fi
 
-db.close();
-console.log('Lifecycle completed at', new Date().toISOString());
-"
+# Purge old changelog entries
+purge_log=$(sqlite3 "$DB_PATH" << 'SQL'
+DELETE FROM changelog
+WHERE timestamp < datetime('now', '-30 days');
+SELECT changes();
+SQL
+)
+if [ "$purge_log" -gt 0 ] 2>/dev/null; then
+    log "Purged $purge_log old changelog entries"
+fi
+
+log "Lifecycle completed"
