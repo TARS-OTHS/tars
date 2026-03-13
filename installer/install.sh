@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# TARS Installer — from zero to setup wizard on a fresh Ubuntu/Debian server
-# Usage: curl -fsSL https://raw.githubusercontent.com/TARS-OTHS/tars/main/installer/install.sh | bash
+# TARS Installer — from zero to running agent on a fresh Ubuntu/Debian server
+# Usage: bash <(curl -fsSL https://raw.githubusercontent.com/TARS-OTHS/tars/main/installer/install.sh)
 #
 # What this does:
 #   1. Installs system dependencies (docker, node, age, etc.)
 #   2. Clones the TARS repo
-#   3. Launches the setup wizard
+#   3. Launches the interactive setup wizard
 
 set -euo pipefail
 
@@ -150,12 +150,9 @@ info "Cloning TARS from GitHub..."
 git clone "$TARS_REPO" "$TARS_DIR"
 success "TARS cloned to $TARS_DIR"
 
-# --- Done ---
+# --- Launch setup wizard ---
 echo
-success "All dependencies installed. TARS cloned to $TARS_DIR"
+success "All dependencies installed. Launching setup wizard..."
 echo
-echo -e "  ${GREEN}Next: run the setup wizard:${RESET}"
-echo
-echo "    cd $TARS_DIR"
-echo "    ./setup.sh"
-echo
+cd "$TARS_DIR"
+exec ./setup.sh
