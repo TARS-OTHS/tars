@@ -117,6 +117,21 @@ fi
 # --- gettext-base (for envsubst, used by cron service) ---
 install_if_missing envsubst gettext-base
 
+# --- Google Chrome (headless browser for agent) ---
+if command -v google-chrome &>/dev/null || command -v google-chrome-stable &>/dev/null; then
+    success "Google Chrome already installed"
+else
+    info "Installing Google Chrome (headless browser)..."
+    wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+    apt-get install -y -qq /tmp/chrome.deb > /dev/null 2>&1
+    rm -f /tmp/chrome.deb
+    if command -v google-chrome-stable &>/dev/null; then
+        success "Google Chrome installed"
+    else
+        warn "Chrome install failed — browser tools will be unavailable"
+    fi
+fi
+
 # --- System checks ---
 echo
 ram_gb=$(awk '/MemTotal/ {printf "%d", $2/1024/1024}' /proc/meminfo)

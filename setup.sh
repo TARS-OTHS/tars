@@ -658,6 +658,13 @@ configure_openclaw() {
   "channels": {
     ${channel_block:-}
   },
+  "browser": {
+    "enabled": true,
+    "executablePath": "/usr/bin/google-chrome-stable",
+    "headless": true,
+    "noSandbox": true,
+    "defaultProfile": "openclaw"
+  },
   "secrets": {
     "providers": {
       "tars_vault": {
@@ -665,6 +672,20 @@ configure_openclaw() {
         "command": "${TARS_HOME}/scripts/vault-resolver.sh",
         "passEnv": ["TARS_HOME", "AGE_KEY_PATH"],
         "jsonOnly": true
+      }
+    }
+  },
+  "plugins": {
+    "entries": {
+      "memory-recall": {
+        "enabled": true,
+        "config": {
+          "memoryApiUrl": "http://${DOCKER_HOST_IP}:${MEMORY_API_PORT:-8897}",
+          "maxResults": 5,
+          "minScore": 0.3,
+          "includeSessionState": true,
+          "includePinned": true
+        }
       }
     }
   }
@@ -961,6 +982,16 @@ IDEOF
     # Generate TOOLS.md with actual service URLs and configured integrations
     generate_tools_md > "$oc_workspace/TOOLS.md"
     print_success "Tools manifest written to OpenClaw workspace"
+
+    # Copy and template workspace docs (AGENTS.md, MEMORY.md)
+    for tmpl in AGENTS.md MEMORY.md; do
+        if [[ -f "$TARS_HOME/templates/$tmpl" ]]; then
+            sed -e "s|DOCKER_HOST_IP|${DOCKER_HOST_IP}|g" \
+                -e "s|DASHBOARD_API_PORT|${DASHBOARD_API_PORT:-8766}|g" \
+                "$TARS_HOME/templates/$tmpl" > "$oc_workspace/$tmpl"
+        fi
+    done
+    print_success "Agent operating docs written (AGENTS.md, MEMORY.md)"
 
     print_header "Building Docker Images"
     echo "  This may take a few minutes on first run..."
