@@ -664,6 +664,13 @@ configure_openclaw() {
   "channels": {
     ${channel_block:-}
   },
+  "tools": {
+    "exec": {
+      "host": "gateway",
+      "security": "full",
+      "ask": "off"
+    }
+  },
   "browser": {
     "enabled": true,
     "executablePath": "/usr/bin/google-chrome-stable",
