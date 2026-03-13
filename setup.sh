@@ -703,6 +703,8 @@ setup_dashboard_access() {
 
 setup_tailscale() {
     echo
+
+    # Already connected?
     if command -v tailscale &>/dev/null; then
         local ts_status
         ts_status=$(tailscale status --json 2>/dev/null | jq -r '.Self.TailscaleIPs[0]' 2>/dev/null || true)
@@ -712,16 +714,6 @@ setup_tailscale() {
             return
         fi
     fi
-
-    echo -e "  ${BLUE}Tailscale Setup${RESET}"
-    echo "  ─────────────────────────────────────────────────────────"
-    echo "  1. Sign up or log in at https://login.tailscale.com"
-    echo "  2. Go to Settings → Keys → Generate auth key"
-    echo "     - Reusable: yes (for easy re-setup)"
-    echo "     - Ephemeral: no"
-    echo "  3. Copy the auth key (starts with tskey-auth-)"
-    echo "  ─────────────────────────────────────────────────────────"
-    echo
 
     # Install Tailscale
     if ! command -v tailscale &>/dev/null; then
@@ -737,22 +729,15 @@ setup_tailscale() {
         fi
     fi
 
-    local ts_key
-    ts_key=$(ask_secret "Tailscale auth key (tskey-auth-...)")
-    if [[ -z "$ts_key" ]]; then
-        print_warn "No auth key — skipping Tailscale, dashboard will be SSH tunnel only"
-        DASHBOARD_ACCESS="ssh-tunnel"
-        TAILSCALE_IP=""
-        return
-    fi
-
-    # Encrypt auth key to vault
-    echo "$ts_key" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/tailscale-key.age"
-    chmod 600 "$TARS_HOME/.secrets/tailscale-key.age"
-
-    # Connect to Tailscale
-    print_info "Connecting to Tailscale..."
-    tailscale up --authkey="$ts_key" --hostname="tars-$(hostname -s | tr '[:upper:]' '[:lower:]')" 2>/dev/null
+    # Interactive login (no auth key needed, no expiry)
+    echo
+    echo -e "  ${BLUE}Tailscale Login${RESET}"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo "  A login URL will appear below. Open it in your browser"
+    echo "  to connect this server to your Tailscale network."
+    echo "  ─────────────────────────────────────────────────────────"
+    echo
+    tailscale up --hostname="tars-$(hostname -s | tr '[:upper:]' '[:lower:]')"
 
     # Get Tailscale IP
     sleep 2
