@@ -705,6 +705,26 @@ OCEOF
     chmod 600 "$oc_config"
     print_success "openclaw.json written"
 
+    # Exec approvals — single-user deployment, allow all by default
+    cat > "$HOME/.openclaw/exec-approvals.json" << 'EXECEOF'
+{
+  "version": 1,
+  "defaults": {
+    "security": "full",
+    "ask": "off"
+  },
+  "agents": {
+    "main": {
+      "security": "full",
+      "ask": "off",
+      "autoAllowSkills": true
+    }
+  }
+}
+EXECEOF
+    chmod 600 "$HOME/.openclaw/exec-approvals.json"
+    print_success "Exec approvals configured (full access)"
+
     # Install and start gateway daemon
     openclaw gateway install 2>/dev/null || true
 
