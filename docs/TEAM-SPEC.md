@@ -205,22 +205,53 @@ When a user is added to `team.json`, the config sync updates OpenClaw allowlists
 
 ---
 
-## User Management
+## Team Management
 
-Users can only be added through two channels:
+### First-Run Onboarding
 
-### 1. Setup wizard (initial install)
-The owner adds team members during first-time setup. The wizard prompts for each user's details and writes them to the registry.
+On T.A.R.S's first conversation, it runs an onboarding flow:
 
-### 2. Owner tells T.A.R.S (post-install)
+1. **Introduce itself** — who it is, what it can do
+2. **Complete the owner's profile** — the setup wizard only captures name and Discord ID. T.A.R.S asks for the rest: email, phone, timezone, role, responsibilities, preferred contact method, any other context
+3. **Ask about the team** — "Who else works with you? Tell me about your team members."
+4. **Collect details conversationally** — for each person: name, role, responsibilities, Discord ID, other contact methods, timezone, context
+5. **Write `team.json`** — save the full roster
+6. **Sync allowlists** — add all Discord IDs to OpenClaw config, restart gateway
+
+This doesn't have to happen all at once. The owner can add team members over multiple conversations: "Add my accountant Maria, her Discord is X, email Y, she handles VAT and bookkeeping."
+
+### Adding Team Members (post-install)
+
+Only the owner can add team members, only through T.A.R.S:
+
 ```
 "Add Alice as an admin. Her Discord ID is 987654321098765432,
 email alice@example.com, WeChat alice_wx, timezone UTC+8.
 She handles sourcing from Shenzhen."
 ```
-T.A.R.S updates the registry, syncs OpenClaw config, and restarts the gateway.
 
-**Only the owner can add team members.** T.A.R.S verifies the request comes from an owner-level user before making changes. No standalone scripts — team management is always mediated by the coordinator agent or the setup wizard.
+T.A.R.S:
+1. Verifies the request comes from an owner
+2. Adds the member to `team.json`
+3. Adds their Discord ID to `openclaw.json` allowlists
+4. Restarts the gateway
+5. Confirms: "Alice is now on the team. She can DM me or message in any channel."
+
+**No setup wizard step, no scripts.** Team management is always conversational through T.A.R.S.
+
+### Team Management Skill
+
+T.A.R.S has a `team-management` skill (owner-only) that handles:
+
+| Command | Action |
+|---------|--------|
+| "Add [name] as [role]" | Create new team member, collect details, sync config |
+| "Update Alice's email to..." | Modify existing member |
+| "Remove Bob from the team" | Remove member, revoke Discord access, sync config |
+| "Show me the team" | Display full roster — humans and agents |
+| "What does Alice do?" | Look up a specific member's role and responsibilities |
+
+The skill wraps the exec calls needed to edit `team.json`, update `openclaw.json`, and restart the gateway. It validates all changes before applying them.
 
 ---
 
