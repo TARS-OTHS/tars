@@ -938,6 +938,26 @@ ENVEOF
     generate_soul_md > "$workspace/SOUL.md"
     print_success "Agent workspace: $workspace"
 
+    # Copy identity into OC's workspace so the bot knows who it is
+    local oc_workspace="$HOME/.openclaw/workspace"
+    mkdir -p "$oc_workspace"
+    cp "$workspace/SOUL.md" "$oc_workspace/SOUL.md"
+    cat > "$oc_workspace/IDENTITY.md" << IDEOF
+# IDENTITY.md - Who Am I?
+
+- **Name:** ${AGENT_NAME}
+- **Creature:** AI agent — Trusted Agent Runtime Stack
+- **Vibe:** Direct, competent, slightly dry. Gets things done.
+- **Emoji:** ⚡
+
+---
+
+I am ${AGENT_NAME}, deployed by ${OWNER_NAME} using TARS v${TARS_VERSION}.
+Role: ${AGENT_ROLE}.
+${AGENT_DESCRIPTION}
+IDEOF
+    print_success "Agent identity written to OpenClaw workspace"
+
     print_header "Building Docker Images"
     echo "  This may take a few minutes on first run..."
     docker compose build --network=host --parallel 2>&1 | grep -E 'Successfully|ERROR|error' || true
