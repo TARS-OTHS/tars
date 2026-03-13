@@ -235,43 +235,85 @@ install_openclaw() {
 collect_claude_credentials() {
     echo
     print_info "Claude LLM connection"
-    echo "  TARS needs an Anthropic API key to connect to Claude."
-    echo "  Get one at: https://console.anthropic.com/settings/keys"
-    echo
-    ANTHROPIC_API_KEY=$(ask_secret "Anthropic API key (starts with sk-ant-)")
-    if [[ -z "$ANTHROPIC_API_KEY" ]]; then
-        print_error "Anthropic API key is required"
-        exit 1
-    fi
+    echo "  How do you want to connect to Claude?"
+    echo "    1) Claude Max/Pro subscription (setup token)"
+    echo "    2) Anthropic API key (pay-per-use)"
+    local auth_choice
+    auth_choice=$(ask "Choice" "1")
 
-    # Validate format
-    if [[ "$ANTHROPIC_API_KEY" == sk-ant-* ]]; then
-        print_success "API key format valid"
+    if [[ "$auth_choice" == "2" ]]; then
+        CLAUDE_AUTH_METHOD="api-key"
+        echo
+        echo "  Get an API key at: https://console.anthropic.com/settings/keys"
+        echo
+        local api_key
+        api_key=$(ask_secret "Anthropic API key (starts with sk-ant-)")
+        if [[ -z "$api_key" ]]; then
+            print_error "API key is required"
+            exit 1
+        fi
+
+        # Encrypt to vault
+        echo "$api_key" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/anthropic-key.age"
+        chmod 600 "$TARS_HOME/.secrets/anthropic-key.age"
+        print_success "API key encrypted to vault"
+
+        # Test connection
+        echo -n "  Testing Claude connection..."
+        local status
+        status=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -H "x-api-key: $api_key" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d '{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' \
+            https://api.anthropic.com/v1/messages 2>/dev/null || echo "000")
+
+        if [[ "$status" == "200" ]]; then
+            print_success "Claude connection verified"
+        elif [[ "$status" == "401" || "$status" == "403" ]]; then
+            print_warn "Auth failed (HTTP $status) — check your API key"
+        else
+            print_warn "Claude returned HTTP $status — may work, check later"
+        fi
     else
-        print_warn "Key doesn't start with sk-ant- — may still work"
-    fi
+        CLAUDE_AUTH_METHOD="setup-token"
+        echo
+        echo "  To get a setup token:"
+        echo "    1. Install Claude Code if you haven't: npm install -g @anthropic-ai/claude-code"
+        echo "    2. Run: claude setup-token"
+        echo "    3. Copy the generated token and paste it below"
+        echo
+        local setup_token
+        setup_token=$(ask_secret "Claude setup token")
+        if [[ -z "$setup_token" ]]; then
+            print_error "Setup token is required"
+            exit 1
+        fi
 
-    # Encrypt to vault
-    echo "$ANTHROPIC_API_KEY" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/anthropic-key.age"
-    chmod 600 "$TARS_HOME/.secrets/anthropic-key.age"
-    print_success "API key encrypted to vault"
+        # Encrypt to vault
+        echo "$setup_token" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/anthropic-key.age"
+        chmod 600 "$TARS_HOME/.secrets/anthropic-key.age"
+        print_success "Setup token encrypted to vault"
 
-    # Test connection
-    echo -n "  Testing Claude connection..."
-    local status
-    status=$(curl -sf -o /dev/null -w "%{http_code}" \
-        -H "x-api-key: $ANTHROPIC_API_KEY" \
-        -H "anthropic-version: 2023-06-01" \
-        -H "content-type: application/json" \
-        -d '{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' \
-        https://api.anthropic.com/v1/messages 2>/dev/null || echo "000")
+        # Test connection (setup tokens use Bearer auth with oauth beta header)
+        echo -n "  Testing Claude connection..."
+        local status
+        status=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $setup_token" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "anthropic-beta: oauth-2025-04-20" \
+            -H "content-type: application/json" \
+            -d '{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' \
+            https://api.anthropic.com/v1/messages 2>/dev/null || echo "000")
 
-    if [[ "$status" == "200" ]]; then
-        print_success "Claude connection verified"
-    elif [[ "$status" == "401" || "$status" == "403" ]]; then
-        print_warn "Auth failed (HTTP $status) — check your API key"
-    else
-        print_warn "Claude returned HTTP $status — may work, check later"
+        if [[ "$status" == "200" ]]; then
+            print_success "Claude connection verified"
+        elif [[ "$status" == "401" || "$status" == "403" ]]; then
+            print_warn "Auth failed (HTTP $status) — token may be invalid or expired"
+            print_info "Re-run 'claude setup-token' to generate a fresh token"
+        else
+            print_warn "Claude returned HTTP $status — may work, check later"
+        fi
     fi
 }
 
@@ -504,10 +546,20 @@ configure_openclaw() {
     openclaw config set secrets.providers.tars_vault.passEnv '["TARS_HOME", "AGE_KEY_PATH"]' --json 2>/dev/null || true
     openclaw config set secrets.providers.tars_vault.jsonOnly true --json 2>/dev/null || true
 
-    # Set Anthropic API key via SecretRef to our vault
-    openclaw config set models.providers.anthropic.apiKey.source '"exec"' --json 2>/dev/null || true
-    openclaw config set models.providers.anthropic.apiKey.provider '"tars_vault"' --json 2>/dev/null || true
-    openclaw config set models.providers.anthropic.apiKey.id '"anthropic-api-key"' --json 2>/dev/null || true
+    # Set Anthropic credentials via SecretRef to our vault
+    if [[ "$CLAUDE_AUTH_METHOD" == "api-key" ]]; then
+        openclaw config set models.providers.anthropic.apiKey.source '"exec"' --json 2>/dev/null || true
+        openclaw config set models.providers.anthropic.apiKey.provider '"tars_vault"' --json 2>/dev/null || true
+        openclaw config set models.providers.anthropic.apiKey.id '"anthropic-api-key"' --json 2>/dev/null || true
+    else
+        # Setup token (subscription) — uses paste-token flow
+        local token
+        token=$(age -d -i "$AGE_KEY_PATH" "$TARS_HOME/.secrets/anthropic-key.age" 2>/dev/null)
+        echo "$token" | openclaw models auth paste-token --provider anthropic 2>/dev/null || {
+            print_warn "Could not set setup token via CLI — may need manual config"
+            print_info "Run: openclaw models auth paste-token --provider anthropic"
+        }
+    fi
 
     # Set default model
     openclaw config set agents.defaults.model.primary '"anthropic/claude-sonnet-4-6"' --json 2>/dev/null || true
@@ -707,9 +759,11 @@ DASHBOARD_PORT=8765
 DASHBOARD_API_PORT=8766
 
 # OpenClaw gateway (manages Claude auth, messaging, model selection)
+CLAUDE_AUTH_METHOD=${CLAUDE_AUTH_METHOD}
 OC_GATEWAY_PORT=${OC_GATEWAY_PORT}
 OC_GATEWAY_TOKEN=${OC_GATEWAY_TOKEN}
 OC_LLM_URL=${OC_LLM_URL}
+MESSAGING_PLATFORM=${MESSAGING_PLATFORM}
 
 # Ops alerts
 ${OPS_ALERTS_CHANNEL:+OPS_ALERTS_CHANNEL=${OPS_ALERTS_CHANNEL}}
