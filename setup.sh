@@ -577,6 +577,9 @@ configure_openclaw() {
     echo
     print_info "Configuring OpenClaw..."
 
+    # Resolve Docker bridge IP early — needed for memory plugin config
+    DOCKER_HOST_IP=${DOCKER_HOST_IP:-$(docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null || echo "172.17.0.1")}
+
     mkdir -p "$HOME/.openclaw"
 
     # Generate gateway auth token
