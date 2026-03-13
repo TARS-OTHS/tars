@@ -691,6 +691,7 @@ configure_openclaw() {
   }
 }
 OCEOF
+    chmod 600 "$oc_config"
     print_success "openclaw.json written"
 
     # Install and start gateway daemon
@@ -993,6 +994,26 @@ IDEOF
     done
     print_success "Agent operating docs written (AGENTS.md, MEMORY.md)"
 
+    # USER.md with owner info
+    cat > "$oc_workspace/USER.md" << USEREOF
+# USER.md — Owner Profile
+
+- **Name:** ${OWNER_NAME}
+- **Timezone:** ${TIMEZONE}
+- **Style:** Direct, concise. Dont waffle.
+USEREOF
+    print_success "USER.md written"
+
+    # Install MEMORY_CONTEXT.md cron job
+    chmod +x "$TARS_HOME/scripts/regen-memory-context.sh" 2>/dev/null || true
+    # Add cron if not already present
+    if ! crontab -l 2>/dev/null | grep -q "regen-memory-context"; then
+        (crontab -l 2>/dev/null; echo "*/30 * * * * DOCKER_HOST_IP=${DOCKER_HOST_IP} OC_WORKSPACE=${oc_workspace} ${TARS_HOME}/scripts/regen-memory-context.sh >> /var/log/tars-context-regen.log 2>&1") | crontab -
+        print_success "MEMORY_CONTEXT.md cron job installed (every 30 min)"
+    fi
+    # Run once now to create initial context
+    DOCKER_HOST_IP="${DOCKER_HOST_IP}" OC_WORKSPACE="${oc_workspace}" "$TARS_HOME/scripts/regen-memory-context.sh" 2>/dev/null || true
+
     print_header "Building Docker Images"
     echo "  This may take a few minutes on first run..."
     docker compose build --network=host --parallel 2>&1 | grep -E 'Successfully|ERROR|error' || true
@@ -1032,6 +1053,13 @@ IDEOF
     echo "    2. Dashboard: $dash_url"
     echo "    3. Add more agents: ./scripts/add-agent.sh"
     echo "    4. Reconfigure OpenClaw: openclaw onboard"
+    if [[ "$MESSAGING_PLATFORM" == "discord" ]]; then
+        echo
+        echo -e "  ${YELLOW}Discord pairing:${RESET}"
+        echo "    The first time you DM the bot, it will show a pairing code."
+        echo "    Approve it on this server with:"
+        echo "      openclaw pairing approve discord <CODE>"
+    fi
     echo
 }
 
