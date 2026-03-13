@@ -690,7 +690,7 @@ configure_openclaw() {
   },
   "plugins": {
     "load": {
-      "paths": ["${TARS_HOME}/plugins/tars-memory"]
+      "paths": ["${TARS_HOME}/plugins/tars-memory", "${TARS_HOME}/plugins/tars-team"]
     },
     "slots": {
       "memory": "tars-memory"
@@ -703,6 +703,12 @@ configure_openclaw() {
           "autoRecall": true,
           "autoSessionState": true,
           "maxRecallResults": 5
+        }
+      },
+      "tars-team": {
+        "enabled": true,
+        "config": {
+          "teamFilePath": "config/team.json"
         }
       }
     }

@@ -1,0 +1,38 @@
+{
+  "humans": [
+    {
+      "id": "peter",
+      "name": "Peter",
+      "type": "human",
+      "access": "owner",
+      "role": "Founder & CEO",
+      "responsibilities": ["Strategy", "Operations", "Product decisions", "Finance oversight"],
+      "context": "Based in Portugal. Manages all operations. Final decision-maker.",
+      "contact": {
+        "email": null,
+        "phone": null,
+        "discord": "341650642709905408",
+        "wechat": null,
+        "telegram": null,
+        "signal": null
+      },
+      "preferences": {
+        "timezone": "UTC+7",
+        "language": "en",
+        "notify_via": "discord"
+      }
+    }
+  ],
+  "agents": [
+    {
+      "id": "tars",
+      "name": "T.A.R.S",
+      "type": "agent",
+      "role": "Coordinator",
+      "domain": "Central operations — task routing, delegation, reporting",
+      "model": "anthropic/claude-sonnet-4-6",
+      "channel": "#general",
+      "capabilities": ["web search", "memory", "exec", "browser", "cron", "sub-agents"]
+    }
+  ]
+}

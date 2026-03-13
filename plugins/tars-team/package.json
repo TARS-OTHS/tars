@@ -1,0 +1,12 @@
+{
+  "name": "@tars/tars-team",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "TARS Team Registry plugin — team context injection and management tools",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  }
+}

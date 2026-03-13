@@ -1,0 +1,20 @@
+{
+  "id": "tars-team",
+  "kind": "tools",
+  "uiHints": {
+    "teamFilePath": {
+      "label": "Team File Path",
+      "placeholder": "config/team.json",
+      "help": "Path to team.json relative to TARS_HOME"
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "teamFilePath": {
+        "type": "string"
+      }
+    }
+  }
+}
