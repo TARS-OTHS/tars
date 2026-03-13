@@ -82,8 +82,8 @@ services:
       - MEMORY_API_URL=http://memory-api:8897
       - BIND_HOST=0.0.0.0
     ports:
-      - "127.0.0.1:${DASHBOARD_PORT:-8765}:8765"
-      - "127.0.0.1:${DASHBOARD_API_PORT:-8766}:8766"
+      - "${DASHBOARD_BIND:-127.0.0.1}:${DASHBOARD_PORT:-8765}:8765"
+      - "${DASHBOARD_BIND:-127.0.0.1}:${DASHBOARD_API_PORT:-8766}:8766"
     depends_on:
       memory-api:
         condition: service_healthy

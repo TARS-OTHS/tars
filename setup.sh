@@ -200,6 +200,9 @@ setup_openclaw() {
 
     # --- Enable Chat Completions endpoint for TARS services ---
     enable_gateway_api
+
+    # --- Dashboard access ---
+    setup_dashboard_access
 }
 
 install_openclaw() {
@@ -622,6 +625,102 @@ configure_openclaw() {
     print_success "OpenClaw fully configured"
 }
 
+setup_dashboard_access() {
+    echo
+    print_info "Dashboard access"
+    echo "  The dashboard should not be publicly accessible."
+    echo "  How should your team access it?"
+    echo "    1) Tailscale (recommended — private network, easy setup)"
+    echo "    2) SSH tunnel only (no extra setup, manual per user)"
+    local access_choice
+    access_choice=$(ask "Choice" "1")
+
+    case "$access_choice" in
+        1) DASHBOARD_ACCESS="tailscale"; setup_tailscale ;;
+        *) DASHBOARD_ACCESS="ssh-tunnel"
+           echo
+           print_info "Access the dashboard via SSH tunnel:"
+           print_info "  ssh -L 8765:127.0.0.1:8765 root@$(hostname -I | awk '{print $1}')"
+           print_info "  Then open http://localhost:8765 in your browser"
+           TAILSCALE_IP=""
+           print_success "Dashboard: SSH tunnel only"
+           ;;
+    esac
+}
+
+setup_tailscale() {
+    echo
+    if command -v tailscale &>/dev/null; then
+        local ts_status
+        ts_status=$(tailscale status --json 2>/dev/null | jq -r '.Self.TailscaleIPs[0]' 2>/dev/null || true)
+        if [[ -n "$ts_status" && "$ts_status" != "null" ]]; then
+            TAILSCALE_IP="$ts_status"
+            print_success "Tailscale already connected ($TAILSCALE_IP)"
+            return
+        fi
+    fi
+
+    echo -e "  ${BLUE}Tailscale Setup${RESET}"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo "  1. Sign up or log in at https://login.tailscale.com"
+    echo "  2. Go to Settings → Keys → Generate auth key"
+    echo "     - Reusable: yes (for easy re-setup)"
+    echo "     - Ephemeral: no"
+    echo "  3. Copy the auth key (starts with tskey-auth-)"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo
+
+    # Install Tailscale
+    if ! command -v tailscale &>/dev/null; then
+        print_info "Installing Tailscale..."
+        curl -fsSL https://tailscale.com/install.sh | sh
+        if command -v tailscale &>/dev/null; then
+            print_success "Tailscale installed"
+        else
+            print_warn "Tailscale install failed — dashboard will be SSH tunnel only"
+            DASHBOARD_ACCESS="ssh-tunnel"
+            TAILSCALE_IP=""
+            return
+        fi
+    fi
+
+    local ts_key
+    ts_key=$(ask_secret "Tailscale auth key (tskey-auth-...)")
+    if [[ -z "$ts_key" ]]; then
+        print_warn "No auth key — skipping Tailscale, dashboard will be SSH tunnel only"
+        DASHBOARD_ACCESS="ssh-tunnel"
+        TAILSCALE_IP=""
+        return
+    fi
+
+    # Encrypt auth key to vault
+    echo "$ts_key" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/tailscale-key.age"
+    chmod 600 "$TARS_HOME/.secrets/tailscale-key.age"
+
+    # Connect to Tailscale
+    print_info "Connecting to Tailscale..."
+    tailscale up --authkey="$ts_key" --hostname="tars-$(echo "$AGENT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' || echo 'server')" 2>/dev/null
+
+    # Get Tailscale IP
+    sleep 2
+    TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || true)
+    if [[ -n "$TAILSCALE_IP" ]]; then
+        print_success "Tailscale connected ($TAILSCALE_IP)"
+        print_info "Dashboard will be at: http://${TAILSCALE_IP}:8765"
+
+        # Allow Tailscale port through firewall
+        if command -v ufw &>/dev/null; then
+            ufw allow in on tailscale0 to any port 8765 2>/dev/null || true
+            ufw allow in on tailscale0 to any port 8766 2>/dev/null || true
+            print_success "Firewall: dashboard allowed on Tailscale interface"
+        fi
+    else
+        print_warn "Could not get Tailscale IP — dashboard will be SSH tunnel only"
+        DASHBOARD_ACCESS="ssh-tunnel"
+        TAILSCALE_IP=""
+    fi
+}
+
 enable_gateway_api() {
     echo
     print_info "Enabling gateway LLM endpoint for TARS services..."
@@ -765,6 +864,11 @@ OC_GATEWAY_TOKEN=${OC_GATEWAY_TOKEN}
 OC_LLM_URL=${OC_LLM_URL}
 MESSAGING_PLATFORM=${MESSAGING_PLATFORM}
 
+# Dashboard access
+DASHBOARD_ACCESS=${DASHBOARD_ACCESS}
+DASHBOARD_BIND=${TAILSCALE_IP:+0.0.0.0}${TAILSCALE_IP:-127.0.0.1}
+${TAILSCALE_IP:+TAILSCALE_IP=${TAILSCALE_IP}}
+
 # Ops alerts
 ${OPS_ALERTS_CHANNEL:+OPS_ALERTS_CHANNEL=${OPS_ALERTS_CHANNEL}}
 
@@ -815,7 +919,11 @@ ENVEOF
     echo -e "  ${GREEN}TARS is running.${RESET}"
     echo
     echo "  Agent:     $AGENT_NAME ($AGENT_ROLE)"
-    echo "  Dashboard: http://localhost:${DASHBOARD_PORT:-8765}"
+    if [[ -n "${TAILSCALE_IP:-}" ]]; then
+        echo "  Dashboard: http://${TAILSCALE_IP}:${DASHBOARD_PORT:-8765} (Tailscale)"
+    else
+        echo "  Dashboard: http://localhost:${DASHBOARD_PORT:-8765} (SSH tunnel required)"
+    fi
     echo
     echo "  Claude auth and messaging are managed by OpenClaw."
     echo "  LLM endpoint: ${OC_LLM_URL}"
