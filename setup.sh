@@ -958,6 +958,10 @@ ${AGENT_DESCRIPTION}
 IDEOF
     print_success "Agent identity written to OpenClaw workspace"
 
+    # Generate TOOLS.md with actual service URLs and configured integrations
+    generate_tools_md > "$oc_workspace/TOOLS.md"
+    print_success "Tools manifest written to OpenClaw workspace"
+
     print_header "Building Docker Images"
     echo "  This may take a few minutes on first run..."
     docker compose build --network=host --parallel 2>&1 | grep -E 'Successfully|ERROR|error' || true
@@ -1047,6 +1051,90 @@ Be direct, concise, and helpful. Ask clarifying questions when needed. Proactive
 - Notion: $([ -n "${NOTION_TOKEN:-}" ] && echo "enabled" || echo "not configured")
 - Trello: $([ -n "${TRELLO_KEY:-}" ] && echo "enabled" || echo "not configured")
 SOULEOF
+}
+
+generate_tools_md() {
+    cat << TOOLSEOF
+# TOOLS.md - Available Tools & Services
+
+## TARS Services (Docker)
+
+All services run in Docker on this host. Internal access via Docker bridge IP \`${DOCKER_HOST_IP}\`.
+
+### Memory API
+- **URL:** \`http://${DOCKER_HOST_IP}:${MEMORY_API_PORT:-8897}\`
+- **Health:** \`GET /status\`
+- **Endpoints:** Store, retrieve, search memories with semantic embeddings
+- Persistent SQLite database with 384-dimension vector search
+
+### Embedding Service
+- **URL:** \`http://${DOCKER_HOST_IP}:${EMBEDDING_PORT:-8896}\`
+- **Health:** \`GET /health\`
+- **Model:** BGE-small-en-v1.5 (ONNX Runtime, 384 dimensions)
+- **Endpoints:** \`POST /embed\`, \`POST /similarity\`, \`POST /search\`, \`POST /batch-embed\`
+
+### Auth Proxy
+- **URL:** \`http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}\`
+- **Health:** \`GET /ops/health\`
+- Handles authenticated requests to external services
+
+### Web Proxy
+- **URL:** \`http://${DOCKER_HOST_IP}:${WEB_PROXY_PORT:-8899}\`
+- Fetch and parse web pages, bypass CORS restrictions
+
+### Credential Proxy
+- Manages credential lifecycle for external service access
+
+### Dashboard
+- **UI:** port ${DASHBOARD_PORT:-8765}
+- **API:** port ${DASHBOARD_API_PORT:-8766}
+- **Endpoints:** \`/send\`, \`/tasks\`, \`/tasks/add\`, \`/tasks/update\`, \`/ops-alerts\`, \`/system-stats\`, \`/memory-health\`
+- Send messages, manage tasks, view system health, ops alerts
+
+### Cron
+- Scheduled tasks: memory backups, health checks, maintenance
+
+## External Integrations
+
+$([ -n "${TAVILY_API_KEY:-}" ] && echo "### Tavily (Web Search)
+- API key configured
+- Use for real-time web search, research, fact-checking
+")
+$([ -n "${TRELLO_KEY:-}" ] && echo "### Trello (Task Management)
+- API key + token configured
+- Create boards, lists, cards; manage project tasks
+")
+$([ -n "${NOTION_TOKEN:-}" ] && echo "### Notion
+- Integration token configured
+- Read/write Notion pages and databases
+")
+$([ -n "${GOOGLE_CLIENT_ID:-}" ] && echo "### Google Workspace
+- OAuth configured (Calendar, Gmail, Drive)
+")
+
+## OpenClaw Gateway
+
+- **LLM Endpoint:** \`${OC_LLM_URL}\`
+- **Model:** \`anthropic/claude-sonnet-4-6\`
+- OpenAI-compatible chat completions API
+- Handles auth rotation, rate limits, model fallback
+
+## Browser
+
+OpenClaw provides a headless browser for web interaction:
+- Browse websites, fill forms, take screenshots
+- Controlled via OC browser tools
+
+## Communication
+
+- **${MESSAGING_PLATFORM:-none}** — Primary messaging channel
+- **Dashboard** — Web UI for direct interaction and task management
+
+## Secrets
+
+All secrets are encrypted with age in \`${TARS_HOME}/.secrets/\`.
+Decrypted at runtime by vault resolver script. Never store plaintext secrets.
+TOOLSEOF
 }
 
 # ============================================================
