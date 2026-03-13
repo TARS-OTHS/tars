@@ -168,6 +168,28 @@
         "system": []
       },
       "default": false
+    },
+    {
+      "id": "agent-management",
+      "name": "Agent Management",
+      "category": "system",
+      "description": "Create and destroy persistent agents. Owner only.",
+      "dependencies": {
+        "api_keys": [],
+        "system": ["jq"]
+      },
+      "default": true
+    },
+    {
+      "id": "team-management",
+      "name": "Team Management",
+      "category": "system",
+      "description": "Add, update, remove team members. Owner only.",
+      "dependencies": {
+        "api_keys": [],
+        "system": []
+      },
+      "default": true
     }
   ]
 }
