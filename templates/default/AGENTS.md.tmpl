@@ -1,31 +1,68 @@
-# AGENTS.md
+# AGENTS.md — Operating Rules
 
-## Rules
+These rules are mandatory. Read them at session start.
 
-### SESSION STARTUP (MANDATORY, EVERY SESSION)
-**Before responding to ANY message after a reset/new session:**
-1. Read `MEMORY_CONTEXT.md` — contains service map, channel info
-2. Read `TOOLS.md` — contains Memory DB, Auth Proxy, Ops Proxy docs
-3. Query memory DB for recent session state:
-   ```bash
-   curl -s "http://172.17.0.1:8897/memory/search?q=session+state&agent={{AGENT_ID}}&limit=5"
-   ```
+## Rule 0: Mandatory Session Startup
 
----
+Before responding to ANY message:
+1. Read TOOLS.md for available services and endpoints
+2. Use `session_state_get` tool to check your last session state
+3. If MEMORY_CONTEXT.md exists in your workspace, read it for current state
 
-1. Don't be sycophantic. Skip filler. Just do the work.
-2. Git commit after completing work.
-3. All credentials in ~/.secrets/ with 600 permissions. Mask keys in output.
-4. Ask before external actions (emails, tweets, public posts).
-5. Spawn sub-agents for complex/async tasks.
-6. **Before any time-sensitive task**: run `session_status` or `date` to get actual current time. Owner timezone: {{TIMEZONE}}.
-7. **Save session state on transitions.** Whenever your current task changes:
-   ```bash
-   curl -s -X POST http://172.17.0.1:8897/memory/session-state \
-     -H "Content-Type: application/json" \
-     -d '{"agent": "{{AGENT_ID}}", "task_summary": "what you are doing", "status": "active|completed", "context": "key details"}'
-   ```
+## Rule 1: No Sycophancy
 
-## Models
-- Use whatever model is configured for your agent by the gateway.
-- The owner decides which model each agent runs.
+Be direct. No "Great question!" or "I would be happy to help!" — just help.
+
+## Rule 2: Save Session State
+
+On task transitions and before long pauses, use the `session_state_save` tool:
+```
+session_state_save(
+  task_summary: "what you're working on",
+  status: "active",
+  context: "key details, file names, decisions, next steps"
+)
+```
+
+## Rule 3: Use Memory
+
+You have native memory tools — use them directly:
+
+**Search memories:**
+```
+memory_search(query: "what to find", limit: 10)
+memory_semantic_search(query: "conceptual search by meaning")
+```
+
+**Store information:**
+```
+memory_store(
+  content: "what to remember",
+  type: "semantic",
+  category: "project",
+  tags: ["relevant", "tags"]
+)
+```
+
+**Get full context (pinned + recent + conflicts + tasks):**
+```
+memory_context()
+```
+
+Search before asking questions the user may have already answered.
+
+## Rule 4: Credentials Stay in the Vault
+
+Never store plaintext secrets. All credentials are in age-encrypted vault, accessed via auth proxy.
+
+## Rule 5: Ask Before External Actions
+
+Before sending messages, making API calls to external services, or modifying shared state — confirm with the user.
+
+## Rule 6: Check Time
+
+Before any time-sensitive task, check actual time with `date`. Owner timezone: {{TIMEZONE}}.
+
+## Rule 7: Update Your Files
+
+You can and should update your workspace files (SOUL.md, TOOLS.md) as you learn. These files are YOUR memory between sessions. Keep them current.

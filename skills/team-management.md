@@ -90,7 +90,7 @@ team_add(
   name: "Maria",
   access: "admin",
   role: "Accountant",
-  discord_id: "123456789012345678",
+  discord: "123456789012345678",
   email: "maria@example.com",
   responsibilities: ["VAT filing", "Bookkeeping", "Invoice management"],
   timezone: "UTC+1",

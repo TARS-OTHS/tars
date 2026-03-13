@@ -106,7 +106,7 @@ A single file at `$TARS_HOME/config/team.json` containing both humans and agents
 | `name` | yes | Display name |
 | `role` | yes | `Coordinator`, `Specialist`, or `Assistant` |
 | `domain` | yes | What this agent is expert in |
-| `model` | yes | LLM model ID |
+| `model` | no | LLM model ID (null = inherit gateway default) |
 | `channel` | no | Primary Discord channel (null if no direct human access) |
 | `capabilities` | yes | List of tool categories this agent has access to |
 

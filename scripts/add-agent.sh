@@ -130,6 +130,13 @@ if [[ -f "$MAIN_WORKSPACE/TOOLS.md" ]]; then
     cp "$MAIN_WORKSPACE/TOOLS.md" "$AGENT_WORKSPACE/TOOLS.md"
 fi
 
+# Generate initial MEMORY_CONTEXT.md if regen script exists
+if [[ -f "$TARS_HOME/scripts/regen-memory-context.sh" ]]; then
+    DOCKER_HOST_IP="${DOCKER_HOST_IP}" OC_WORKSPACE="${AGENT_WORKSPACE}" \
+        "$TARS_HOME/scripts/regen-memory-context.sh" 2>/dev/null || true
+    info "MEMORY_CONTEXT.md generated"
+fi
+
 info "Workspace files written"
 
 # ============================================================================

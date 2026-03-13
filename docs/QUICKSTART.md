@@ -34,21 +34,31 @@ The wizard handles everything:
 - Prompts for API keys you want to connect
 - Lets you pick skills
 - Generates all config files
-- Stores credentials securely
+- Encrypts credentials into age vault
 
 ### What It Creates
 
 ```
-config/
-├── platform.yaml          # Master config (single source of truth)
-├── auth-proxy.json        # API route definitions
-└── openclaw.json          # Gateway + agent definitions
+~/.openclaw/
+├── openclaw.json              # Gateway + agent + plugin config
+├── exec-approvals.json        # Per-agent exec permissions
+└── workspace/                 # Main agent workspace
+    ├── SOUL.md                # Agent personality
+    ├── IDENTITY.md            # Agent identity
+    ├── TOOLS.md               # Available services
+    ├── AGENTS.md              # Operating rules
+    └── MEMORY.md              # Memory system reference
 
-.secrets/
-├── discord.env            # Bot token, guild ID
-├── anthropic.env          # API key
-├── tavily.env             # Search API key
-└── ...                    # Other integrations you configured
+$TARS_HOME/
+├── config/
+│   └── team.json              # Team registry (humans + agents)
+├── .secrets-vault/
+│   └── secrets.age            # Age-encrypted credentials
+├── .secrets/
+│   └── age-key.txt            # Age decryption key
+└── plugins/
+    ├── tars-memory/           # Memory auto-recall plugin
+    └── tars-team/             # Team context injection plugin
 ```
 
 ## Step 3: Start
@@ -60,21 +70,30 @@ docker compose up -d
 All services start and health-check automatically:
 
 ```
-✅ auth-proxy        (healthy)
-✅ memory-db         (healthy)
-✅ embedding-service  (healthy)
-✅ web-proxy         (healthy)
-✅ dashboard         (healthy)
-✅ openclaw-gateway   (healthy)
+auth-proxy        (healthy)
+memory-db         (healthy)
+embedding-service (healthy)
+web-proxy         (healthy)
+dashboard         (healthy)
+cron              (healthy)
+```
+
+Then start the gateway:
+
+```bash
+openclaw gateway install
+openclaw gateway start
 ```
 
 ## Step 4: Verify
 
-```bash
-./scripts/status.sh
-```
+Open the dashboard: `http://localhost:8765`
 
-Or open the dashboard: `http://localhost:8765`
+Or check services directly:
+```bash
+docker compose ps
+journalctl --user -u openclaw-gateway -n 20
+```
 
 ## Step 5: Talk to Your Agent
 
@@ -82,12 +101,10 @@ Open Discord (or whichever messaging platform you configured) and send a message
 
 ## What's Next
 
-- **Add integrations:** Dashboard → Settings, or `./scripts/add-integration.sh`
-- **Add agents:** `./scripts/add-agent.sh`
-- **Install skills:** Dashboard → Skills
-- **Set up backups:** `crontab -e` → add `0 */6 * * * /path/to/tars/scripts/backup.sh`
-- **Harden security:** `./scripts/security-audit.sh`
-- **Read the docs:** [Architecture](ARCHITECTURE.md) · [Security](SECURITY.md) · [Skills](SKILLS.md)
+- **Add team members:** Tell T.A.R.S in Discord: "Add Alice as admin..."
+- **Add agents:** Tell T.A.R.S: "Create a sourcing agent..." or run `./scripts/add-agent.sh`
+- **Update TARS:** `./scripts/update.sh` (pulls latest, rebuilds if needed)
+- **Read the docs:** [Architecture](ARCHITECTURE.md) · [Security](SECURITY.md) · [Team Spec](TEAM-SPEC.md) · [Multi-Agent Spec](MULTI-AGENT-SPEC.md)
 
 ## Troubleshooting
 
@@ -98,11 +115,11 @@ docker compose logs <service-name>
 
 If the agent doesn't respond:
 ```bash
-# Check gateway
-docker compose logs openclaw-gateway
+# Check gateway logs
+journalctl --user -u openclaw-gateway -n 50
 
 # Check the bot is connected
-curl http://localhost:9100/discord-api/users/@me
+curl http://localhost:9100/ops/health
 ```
 
 See [Troubleshooting](TROUBLESHOOTING.md) for more.

@@ -15,7 +15,7 @@
 
 Every agent has:
 - **ID** — unique identifier (e.g. `tars`, `sourcing`, `analytics`)
-- **Role** — one of: `coordinator`, `specialist`, `assistant`
+- **Role** — one of: `Coordinator`, `Specialist`, `Assistant`
 - **Domain** — what it's expert in (e.g. "product sourcing", "financial reporting")
 - **SOUL.md** — personality, operating rules, constraints
 
@@ -26,6 +26,8 @@ Every agent has:
 | **Coordinator** | Routes tasks, delegates to specialists, reports to humans. T.A.R.S is the default coordinator. |
 | **Specialist** | Deep expertise in one domain. Called by coordinators or directly by humans. |
 | **Assistant** | General-purpose, handles tasks that don't need a specialist. |
+
+Role values are capitalized in `team.json` (e.g. `"Coordinator"`, `"Specialist"`, `"Assistant"`).
 
 Any agent can talk to any other. Roles are conventions, not hard boundaries.
 
