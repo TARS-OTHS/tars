@@ -7,10 +7,10 @@ services:
     ports:
       - "${DOCKER_HOST_IP:-172.17.0.1}:${AUTH_PROXY_PORT:-9100}:9100"
     volumes:
-      - ${TARS_HOME:-.}/.secrets-vault:/tars/.secrets-vault:ro
-      - ${TARS_HOME:-.}/.config/age:/tars/.config/age:ro
-      - ${TARS_HOME:-.}/.secrets:/tars/.secrets:ro
-      - auth-proxy-logs:/tars/logs
+      - ${TARS_HOME:-.}/.secrets-vault:${TARS_HOME:-.}/.secrets-vault:ro
+      - ${TARS_HOME:-.}/.config/age:${TARS_HOME:-.}/.config/age:ro
+      - ${TARS_HOME:-.}/.secrets:${TARS_HOME:-.}/.secrets:ro
+      - auth-proxy-logs:${TARS_HOME:-.}/logs
     depends_on:
       memory-api:
         condition: service_healthy

@@ -975,13 +975,7 @@ AGENT_NAME=${AGENT_NAME}
 AGENT_ID=${AGENT_ID}
 AGENT_ROLE=${AGENT_ROLE}
 
-# Integrations
-${TAVILY_API_KEY:+TAVILY_API_KEY=${TAVILY_API_KEY}}
-${NOTION_TOKEN:+NOTION_TOKEN=${NOTION_TOKEN}}
-${TRELLO_KEY:+TRELLO_KEY=${TRELLO_KEY}}
-${TRELLO_TOKEN:+TRELLO_TOKEN=${TRELLO_TOKEN}}
-${GOOGLE_CLIENT_ID:+GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}}
-${GOOGLE_CLIENT_SECRET:+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}}
+# Integration keys are stored in the encrypted vault, not here.
 
 # Paths
 AGE_KEY_PATH=${age_key_path}
@@ -991,6 +985,24 @@ NPM_GLOBAL_BIN=${HOME}/.npm-global/bin
 ENVEOF
     chmod 600 "$SCRIPT_DIR/.env"
     print_success ".env written"
+
+    # Build encrypted vault for integration API keys
+    mkdir -p "$TARS_HOME/.config/age"
+    cp "$age_key_path" "$TARS_HOME/.config/age/key.txt"
+    chmod 600 "$TARS_HOME/.config/age/key.txt"
+
+    local vault_json="{}"
+    [[ -n "${TAVILY_API_KEY:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg v "$TAVILY_API_KEY" '. + {"tavily-api-key": $v}')
+    [[ -n "${NOTION_TOKEN:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg v "$NOTION_TOKEN" '. + {"notion-token": $v}')
+    if [[ -n "${TRELLO_KEY:-}" && -n "${TRELLO_TOKEN:-}" ]]; then
+        vault_json=$(echo "$vault_json" | jq --arg k "$TRELLO_KEY" --arg t "$TRELLO_TOKEN" '. + {"trello-credentials.json": {"key": $k, "token": $t}}')
+    fi
+    [[ -n "${GOOGLE_CLIENT_ID:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg id "$GOOGLE_CLIENT_ID" --arg sec "${GOOGLE_CLIENT_SECRET:-}" '. + {"google-token.json": {"client_id": $id, "client_secret": $sec}}')
+
+    echo "$vault_json" | age -r "$age_pubkey" -o "$TARS_HOME/.secrets-vault/secrets.age"
+    chmod 600 "$TARS_HOME/.secrets-vault/secrets.age"
+    local vault_count=$(echo "$vault_json" | jq 'length')
+    print_success "Encrypted vault created ($vault_count secrets)"
 
     # Generate agent workspace
     local workspace="$TARS_HOME/workspace-${AGENT_ID}"
