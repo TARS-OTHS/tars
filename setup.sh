@@ -680,7 +680,7 @@ configure_openclaw() {
   },
   "plugins": {
     "load": {
-      "paths": ["${TARS_HOME}/plugins/memory-tools"]
+      "paths": ["${TARS_HOME}/plugins/tars-memory"]
     },
     "slots": {
       "memory": "tars-memory"
