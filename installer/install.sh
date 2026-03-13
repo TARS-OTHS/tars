@@ -150,9 +150,12 @@ info "Cloning TARS from GitHub..."
 git clone "$TARS_REPO" "$TARS_DIR"
 success "TARS cloned to $TARS_DIR"
 
-# --- Launch setup wizard ---
+# --- Done ---
 echo
-info "All dependencies installed. Launching setup wizard..."
+success "All dependencies installed. TARS cloned to $TARS_DIR"
 echo
-cd "$TARS_DIR"
-exec ./setup.sh
+echo -e "  ${GREEN}Next: run the setup wizard:${RESET}"
+echo
+echo "    cd $TARS_DIR"
+echo "    ./setup.sh"
+echo
