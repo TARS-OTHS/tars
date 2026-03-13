@@ -261,6 +261,25 @@ collect_claude_credentials() {
         chmod 600 "$TARS_HOME/.secrets/anthropic-key.age"
         print_success "API key encrypted to vault"
 
+        # Write auth-profiles.json directly (OC's paste-token is interactive TUI)
+        local oc_agent_dir="$HOME/.openclaw/agents/main/agent"
+        mkdir -p "$oc_agent_dir"
+        cat > "$oc_agent_dir/auth-profiles.json" << AUTHEOF
+{
+  "profiles": {
+    "anthropic:api": {
+      "provider": "anthropic",
+      "type": "api_key",
+      "key": "$api_key"
+    }
+  },
+  "order": {
+    "anthropic": ["anthropic:api"]
+  }
+}
+AUTHEOF
+        print_success "Auth profile written to OpenClaw"
+
         # Test connection
         echo -n "  Testing Claude connection..."
         local status
@@ -297,6 +316,25 @@ collect_claude_credentials() {
         echo "$setup_token" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/anthropic-key.age"
         chmod 600 "$TARS_HOME/.secrets/anthropic-key.age"
         print_success "Setup token encrypted to vault"
+
+        # Write auth-profiles.json directly (OC's paste-token is interactive TUI)
+        local oc_agent_dir="$HOME/.openclaw/agents/main/agent"
+        mkdir -p "$oc_agent_dir"
+        cat > "$oc_agent_dir/auth-profiles.json" << AUTHEOF
+{
+  "profiles": {
+    "anthropic:default": {
+      "provider": "anthropic",
+      "type": "token",
+      "token": "$setup_token"
+    }
+  },
+  "order": {
+    "anthropic": ["anthropic:default"]
+  }
+}
+AUTHEOF
+        print_success "Auth profile written to OpenClaw"
 
         # Test connection (setup tokens use Bearer auth with oauth beta header)
         echo -n "  Testing Claude connection..."
@@ -537,89 +575,104 @@ RESOLVEREOF
 
 configure_openclaw() {
     echo
-    print_info "Configuring OpenClaw programmatically..."
+    print_info "Configuring OpenClaw..."
 
-    # Ensure OC config dir exists
     mkdir -p "$HOME/.openclaw"
 
-    # --- Model provider: Anthropic ---
-    # Point API key at our vault via exec provider
-    openclaw config set secrets.providers.tars_vault.source '"exec"' --json 2>/dev/null || true
-    openclaw config set secrets.providers.tars_vault.command "\"$TARS_HOME/scripts/vault-resolver.sh\"" --json 2>/dev/null || true
-    openclaw config set secrets.providers.tars_vault.passEnv '["TARS_HOME", "AGE_KEY_PATH"]' --json 2>/dev/null || true
-    openclaw config set secrets.providers.tars_vault.jsonOnly true --json 2>/dev/null || true
-
-    # Set Anthropic credentials via SecretRef to our vault
-    if [[ "$CLAUDE_AUTH_METHOD" == "api-key" ]]; then
-        openclaw config set models.providers.anthropic.apiKey.source '"exec"' --json 2>/dev/null || true
-        openclaw config set models.providers.anthropic.apiKey.provider '"tars_vault"' --json 2>/dev/null || true
-        openclaw config set models.providers.anthropic.apiKey.id '"anthropic-api-key"' --json 2>/dev/null || true
-    else
-        # Setup token (subscription) — uses paste-token flow
-        local token
-        token=$(age -d -i "$AGE_KEY_PATH" "$TARS_HOME/.secrets/anthropic-key.age" 2>/dev/null)
-        echo "$token" | openclaw models auth paste-token --provider anthropic 2>/dev/null || {
-            print_warn "Could not set setup token via CLI — may need manual config"
-            print_info "Run: openclaw models auth paste-token --provider anthropic"
-        }
-    fi
-
-    # Set default model
-    openclaw config set agents.defaults.model.primary '"anthropic/claude-sonnet-4-6"' --json 2>/dev/null || true
-    print_success "Claude model configured (via vault)"
-
-    # --- Messaging platform ---
-    if [[ "$MESSAGING_PLATFORM" == "discord" ]]; then
-        # Discord token via SecretRef
-        openclaw config set channels.discord.token.source '"exec"' --json 2>/dev/null || true
-        openclaw config set channels.discord.token.provider '"tars_vault"' --json 2>/dev/null || true
-        openclaw config set channels.discord.token.id '"discord-bot-token"' --json 2>/dev/null || true
-        openclaw config set channels.discord.enabled true --json 2>/dev/null || true
-        openclaw config set channels.discord.groupPolicy '"allowlist"' --json 2>/dev/null || true
-
-        if [[ -n "${DISCORD_GUILD_ID:-}" ]]; then
-            # Configure guild allowlist
-            openclaw config set "channels.discord.guilds.${DISCORD_GUILD_ID}.requireMention" true --json 2>/dev/null || true
-            if [[ -n "${DISCORD_OWNER_ID:-}" ]]; then
-                openclaw config set "channels.discord.guilds.${DISCORD_GUILD_ID}.users" "[\"${DISCORD_OWNER_ID}\"]" --json 2>/dev/null || true
-            fi
-        fi
-        print_success "Discord channel configured (via vault)"
-
-    elif [[ "$MESSAGING_PLATFORM" == "slack" ]]; then
-        openclaw config set channels.slack.token.source '"exec"' --json 2>/dev/null || true
-        openclaw config set channels.slack.token.provider '"tars_vault"' --json 2>/dev/null || true
-        openclaw config set channels.slack.token.id '"slack-bot-token"' --json 2>/dev/null || true
-        openclaw config set channels.slack.enabled true --json 2>/dev/null || true
-        print_success "Slack channel configured (via vault)"
-
-    elif [[ "$MESSAGING_PLATFORM" == "telegram" ]]; then
-        openclaw config set channels.telegram.token.source '"exec"' --json 2>/dev/null || true
-        openclaw config set channels.telegram.token.provider '"tars_vault"' --json 2>/dev/null || true
-        openclaw config set channels.telegram.token.id '"telegram-bot-token"' --json 2>/dev/null || true
-        openclaw config set channels.telegram.enabled true --json 2>/dev/null || true
-        print_success "Telegram channel configured (via vault)"
-
-    elif [[ "$MESSAGING_PLATFORM" == "whatsapp" ]]; then
-        openclaw config set channels.whatsapp.enabled true --json 2>/dev/null || true
-        print_success "WhatsApp channel enabled (pair after deploy)"
-
-    elif [[ "$MESSAGING_PLATFORM" == "signal" ]]; then
-        openclaw config set channels.signal.enabled true --json 2>/dev/null || true
-        print_success "Signal channel enabled (pair after deploy)"
-    fi
-
-    # --- Gateway ---
-    # Generate and store gateway auth token
+    # Generate gateway auth token
     OC_GATEWAY_TOKEN=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | base64 | tr -d '/+=' | head -c 64)
     echo "$OC_GATEWAY_TOKEN" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/gateway-token.age"
     chmod 600 "$TARS_HOME/.secrets/gateway-token.age"
 
-    openclaw config set gateway.auth.token "\"$OC_GATEWAY_TOKEN\"" --json 2>/dev/null || true
-    openclaw config set gateway.auth.mode '"token"' --json 2>/dev/null || true
-    openclaw config set gateway.bind '"lan"' --json 2>/dev/null || true
+    # Build channel config based on selected platform
+    local channel_block=""
+    case "$MESSAGING_PLATFORM" in
+        discord)
+            # Decrypt token for OC config (OC needs plaintext in config or SecretRef)
+            local discord_token
+            discord_token=$(age -d -i "$AGE_KEY_PATH" "$TARS_HOME/.secrets/discord-token.age" 2>/dev/null)
+            local guild_block=""
+            if [[ -n "${DISCORD_GUILD_ID:-}" ]]; then
+                local users_line=""
+                [[ -n "${DISCORD_OWNER_ID:-}" ]] && users_line="\"users\": [\"${DISCORD_OWNER_ID}\"],"
+                guild_block="\"guilds\": { \"${DISCORD_GUILD_ID}\": { ${users_line} \"requireMention\": true } },"
+            fi
+            channel_block="\"discord\": {
+        \"enabled\": true,
+        \"botToken\": \"${discord_token}\",
+        \"groupPolicy\": \"allowlist\",
+        ${guild_block}
+        \"dmPolicy\": \"allowlist\"
+      }"
+            ;;
+        slack)
+            local slack_token
+            slack_token=$(age -d -i "$AGE_KEY_PATH" "$TARS_HOME/.secrets/slack-token.age" 2>/dev/null)
+            channel_block="\"slack\": {
+        \"enabled\": true,
+        \"botToken\": \"${slack_token}\"
+      }"
+            ;;
+        telegram)
+            local telegram_token
+            telegram_token=$(age -d -i "$AGE_KEY_PATH" "$TARS_HOME/.secrets/telegram-token.age" 2>/dev/null)
+            channel_block="\"telegram\": {
+        \"enabled\": true,
+        \"botToken\": \"${telegram_token}\"
+      }"
+            ;;
+        whatsapp)
+            channel_block="\"whatsapp\": { \"enabled\": true }"
+            ;;
+        signal)
+            channel_block="\"signal\": { \"enabled\": true }"
+            ;;
+    esac
 
-    # Install daemon
+    # Write complete openclaw.json (JSON5 format supported)
+    local oc_config="$HOME/.openclaw/openclaw.json"
+    # Back up existing config if present
+    [[ -f "$oc_config" ]] && cp "$oc_config" "${oc_config}.bak.tars" 2>/dev/null || true
+
+    cat > "$oc_config" << OCEOF
+{
+  "gateway": {
+    "mode": "local",
+    "port": ${OC_GATEWAY_PORT:-18789},
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "${OC_GATEWAY_TOKEN}"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-6"
+      }
+    },
+    "list": [
+      { "id": "main", "default": true }
+    ]
+  },
+  "channels": {
+    ${channel_block:-}
+  },
+  "secrets": {
+    "providers": {
+      "tars_vault": {
+        "source": "exec",
+        "command": "${TARS_HOME}/scripts/vault-resolver.sh",
+        "passEnv": ["TARS_HOME", "AGE_KEY_PATH"],
+        "jsonOnly": true
+      }
+    }
+  }
+}
+OCEOF
+    print_success "openclaw.json written"
+
+    # Install and start gateway daemon
     openclaw gateway install 2>/dev/null || true
 
     print_success "OpenClaw fully configured"

@@ -11,6 +11,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 PORT = int(os.environ.get('API_PORT', '8766'))
+UI_PORT = int(os.environ.get('PORT', '8765'))
 BIND = os.environ.get('BIND_HOST', '0.0.0.0')
 DASHBOARD_DIR = Path(__file__).parent
 RESPONSES_DIR = DASHBOARD_DIR / "responses"
@@ -308,10 +309,71 @@ class APIHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         print(f"[API] {args[0]}")
 
+class UIHandler(BaseHTTPRequestHandler):
+    """Serves the dashboard UI (index.html and static files) on the UI port."""
+
+    def _guess_type(self, path):
+        ext = os.path.splitext(path)[1].lower()
+        return {
+            '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
+            '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
+            '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
+        }.get(ext, 'application/octet-stream')
+
+    def do_GET(self):
+        # Map URL path to file
+        req_path = self.path.split('?')[0].split('#')[0]
+        if req_path == '/' or req_path == '':
+            file_path = DASHBOARD_DIR / 'index.html'
+        else:
+            file_path = DASHBOARD_DIR / req_path.lstrip('/')
+
+        # Security: prevent directory traversal
+        try:
+            file_path = file_path.resolve()
+            if not str(file_path).startswith(str(DASHBOARD_DIR.resolve())):
+                self.send_error(403)
+                return
+        except Exception:
+            self.send_error(400)
+            return
+
+        if file_path.is_file():
+            content = file_path.read_bytes()
+            self.send_response(200)
+            self.send_header('Content-Type', self._guess_type(str(file_path)))
+            self.send_header('Content-Length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        else:
+            # SPA fallback: serve index.html for unknown routes
+            index = DASHBOARD_DIR / 'index.html'
+            if index.is_file():
+                content = index.read_bytes()
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html')
+                self.send_header('Content-Length', str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+            else:
+                self.send_error(404)
+
+    def log_message(self, format, *args):
+        print(f"[UI] {args[0]}")
+
+
 def main():
-    server = HTTPServer((BIND, PORT), APIHandler)
+    api_server = HTTPServer((BIND, PORT), APIHandler)
+    ui_server = HTTPServer((BIND, UI_PORT), UIHandler)
+
+    # Run API server in a background thread
+    api_thread = threading.Thread(target=api_server.serve_forever, daemon=True)
+    api_thread.start()
     print(f"API server running on http://{BIND}:{PORT}")
-    server.serve_forever()
+
+    # UI server runs in main thread
+    print(f"UI server running on http://{BIND}:{UI_PORT}")
+    ui_server.serve_forever()
 
 if __name__ == '__main__':
     main()
