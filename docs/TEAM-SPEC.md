@@ -67,7 +67,7 @@ A single file at `$TARS_HOME/config/team.json` containing both humans and agents
       "type": "agent",
       "role": "Coordinator",
       "domain": "Central operations — task routing, delegation, reporting",
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": null,
       "channel": "#general",
       "capabilities": ["web search", "memory", "exec", "browser", "cron", "sub-agents"]
     },
@@ -77,7 +77,7 @@ A single file at `$TARS_HOME/config/team.json` containing both humans and agents
       "type": "agent",
       "role": "Specialist",
       "domain": "Product research, supplier discovery, pricing analysis",
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": null,
       "channel": "#sourcing",
       "capabilities": ["web search", "memory", "browser"]
     }

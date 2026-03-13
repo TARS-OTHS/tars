@@ -3,7 +3,7 @@
 # Called by T.A.R.S via exec, or manually.
 #
 # Usage: ./scripts/add-agent.sh --id sourcing --name "Sourcing Agent" --role specialist \
-#          --domain "Product research, supplier discovery" --model anthropic/claude-sonnet-4-6 \
+#          --domain "Product research, supplier discovery" --model <model-id> \
 #          --channel "#sourcing"
 
 set -euo pipefail
@@ -21,7 +21,7 @@ AGENT_ID=""
 AGENT_NAME=""
 AGENT_ROLE="specialist"
 AGENT_DOMAIN=""
-AGENT_MODEL="anthropic/claude-sonnet-4-6"
+AGENT_MODEL=""
 AGENT_CHANNEL=""
 SOUL_TEXT=""
 CAPABILITIES="web search,memory"

@@ -30,7 +30,7 @@
 | Field | Default | When to ask |
 |-------|---------|-------------|
 | **Role** | `specialist` | Only if coordinator or assistant |
-| **Model** | `anthropic/claude-sonnet-4-6` | Only if owner wants a different model |
+| **Model** | Inherited from gateway defaults | Only if owner specifies one |
 | **Channel** | None | Ask: "Should it have a home channel?" |
 | **Capabilities** | `web search, memory` | Only if owner specifies more (exec, browser, cron, sub-agents) |
 

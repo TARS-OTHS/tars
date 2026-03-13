@@ -124,7 +124,7 @@ T.A.R.S (or a human) identifies that:
 id: sourcing
 role: specialist
 domain: Product research, supplier discovery, pricing analysis
-model: anthropic/claude-sonnet-4-6
+model: null  # inherits gateway default, or set per-agent
 channel: "#sourcing"        # optional — for direct human access
 ```
 
