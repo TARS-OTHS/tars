@@ -6,7 +6,7 @@
 set -euo pipefail
 
 TARS_VERSION="0.1.0-alpha"
-OPENCLAW_VERSION="${OPENCLAW_VERSION:-2026.3.8}"
+OC_GATEWAY_PORT="${OC_GATEWAY_PORT:-18789}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Colours ---
@@ -82,9 +82,9 @@ check_prerequisites() {
     if command -v node &>/dev/null; then
         local node_ver
         node_ver=$(node --version | sed 's/v//' | cut -d. -f1)
-        if [[ "$node_ver" -lt 18 ]]; then
-            print_warn "Node.js v$node_ver found — v18+ required"
-            missing+=("nodejs-18+")
+        if [[ "$node_ver" -lt 22 ]]; then
+            print_warn "Node.js v$node_ver found — v22+ required"
+            missing+=("nodejs-22+")
         fi
     fi
 
@@ -159,214 +159,144 @@ collect_basics() {
 # SECTION 3: OPENCLAW GATEWAY
 # ============================================================
 # OpenClaw handles Claude auth (Max subscription or API key),
-# messaging platform setup (Discord/Slack), model selection,
-# and agent lifecycle. TARS does not duplicate any of this.
+# messaging platform setup (Discord/Slack/Telegram/etc.),
+# model selection, and agent lifecycle.
+#
+# TARS services use OC's Chat Completions endpoint for LLM
+# access (memory summaries, future use cases). A health check
+# monitors the endpoint and alerts if OC updates break it.
 # ============================================================
 setup_openclaw() {
     print_header "Section 3/6 — OpenClaw Gateway"
 
-    # Check if OpenClaw is already installed
-    local oc_bin=""
+    # --- Install OpenClaw ---
     if command -v openclaw &>/dev/null; then
-        oc_bin="$(command -v openclaw)"
-        print_success "OpenClaw found at $oc_bin"
-    elif [[ -x "$HOME/.npm-global/bin/openclaw" ]]; then
-        oc_bin="$HOME/.npm-global/bin/openclaw"
-        export PATH="$HOME/.npm-global/bin:$PATH"
-        print_success "OpenClaw found at $oc_bin"
+        local oc_ver
+        oc_ver=$(openclaw --version 2>/dev/null || echo "unknown")
+        print_success "OpenClaw found ($oc_ver)"
     else
-        echo "  Installing OpenClaw v${OPENCLAW_VERSION}..."
-        mkdir -p "$HOME/.npm-global"
-        npm install -g "openclaw@${OPENCLAW_VERSION}" --prefix "$HOME/.npm-global" 2>&1 | tail -1
-        export PATH="$HOME/.npm-global/bin:$PATH"
+        echo
+        print_info "Installing OpenClaw..."
+        print_info "This will install OpenClaw and any Node.js version it requires."
+        echo
+        curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
+        echo
+
         if command -v openclaw &>/dev/null; then
-            print_success "OpenClaw ${OPENCLAW_VERSION} installed"
+            print_success "OpenClaw installed"
         else
-            print_error "OpenClaw installation failed"
-            echo "  Install manually: npm install -g openclaw@${OPENCLAW_VERSION}"
-            exit 1
+            # Check common install locations
+            for p in "$HOME/.npm-global/bin" "$HOME/.local/bin" "/usr/local/bin"; do
+                if [[ -x "$p/openclaw" ]]; then
+                    export PATH="$p:$PATH"
+                    break
+                fi
+            done
+            if ! command -v openclaw &>/dev/null; then
+                print_error "OpenClaw installation failed"
+                echo "  Install manually: https://docs.openclaw.ai/install"
+                exit 1
+            fi
+            print_success "OpenClaw installed"
         fi
     fi
 
-    # Check if OpenClaw is already configured
+    # --- Onboard (Claude auth + messaging) ---
     local oc_config="$HOME/.openclaw/openclaw.json"
     if [[ -f "$oc_config" ]]; then
-        print_success "OpenClaw config found at $oc_config"
+        print_success "OpenClaw config found"
         echo
         local ans
-        ans=$(ask_yn "Re-run OpenClaw setup? (N = keep existing config)" "n")
+        ans=$(ask_yn "Re-run OpenClaw onboarding? (N = keep existing config)" "n")
         if [[ "$ans" =~ ^[Yy] ]]; then
             echo
-            print_info "Launching OpenClaw setup..."
+            print_info "Launching OpenClaw onboarding..."
             print_info "This configures: Claude connection, messaging platform, model selection"
             echo
-            openclaw setup
+            openclaw onboard --install-daemon
         fi
     else
         echo
         print_info "OpenClaw needs initial configuration."
-        print_info "This will set up: Claude connection, messaging platform, model selection"
+        print_info "This will set up your Claude connection, messaging platform, and model."
         echo
-        openclaw setup
+        openclaw onboard --install-daemon
     fi
 
-    # Verify OpenClaw config exists after setup
+    # Verify config exists after onboarding
     if [[ ! -f "$oc_config" ]]; then
-        print_error "OpenClaw config not found after setup"
-        echo "  Run 'openclaw setup' manually, then re-run this script"
+        print_error "OpenClaw config not found after onboarding"
+        echo "  Run 'openclaw onboard --install-daemon' manually, then re-run this script"
         exit 1
     fi
 
     print_success "OpenClaw configured"
 
-    # Import Claude token from OC into TARS secrets
-    import_claude_token
+    # --- Enable Chat Completions endpoint for TARS services ---
+    enable_gateway_api
 
-    # Create ops-alerts channel
-    create_ops_alerts_channel
+    # --- Set up ops alerts channel ---
+    setup_ops_alerts
 }
 
-import_claude_token() {
+enable_gateway_api() {
     echo
-    print_info "Importing Claude auth token from OpenClaw..."
+    print_info "Enabling OpenClaw gateway API for TARS services..."
 
-    # Find OC auth-profiles.json — try known locations
-    local auth_file=""
-    for candidate in \
-        "$HOME/.openclaw/agents/main/agent/auth-profiles.json" \
-        "$HOME/.openclaw/auth-profiles.json" \
-        "$HOME/.openclaw/agents/default/agent/auth-profiles.json"; do
-        if [[ -f "$candidate" ]]; then
-            auth_file="$candidate"
-            break
-        fi
-    done
+    # Enable the OpenAI-compatible chat completions endpoint
+    openclaw config set gateway.http.endpoints.chatCompletions.enabled true --json 2>/dev/null || {
+        print_warn "Could not enable chat completions endpoint via CLI"
+        print_info "Add this to your openclaw.json manually:"
+        print_info '  "gateway": { "http": { "endpoints": { "chatCompletions": { "enabled": true } } } }'
+    }
 
-    if [[ -z "$auth_file" ]]; then
-        print_warn "Could not find OC auth-profiles.json"
-        print_info "TARS will retry automatically via cron once OpenClaw creates it."
-        print_info "Or run 'tars reauth' after OpenClaw is fully started."
-        OC_AUTH_PROFILES_DIR=""
-        return 0
+    # Read or generate the gateway auth token
+    OC_GATEWAY_TOKEN=$(openclaw config get gateway.auth.token 2>/dev/null | tr -d '"' || true)
+    if [[ -z "$OC_GATEWAY_TOKEN" || "$OC_GATEWAY_TOKEN" == "null" ]]; then
+        # Check env var
+        OC_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
+    fi
+    if [[ -z "$OC_GATEWAY_TOKEN" ]]; then
+        # Generate a token for the gateway
+        OC_GATEWAY_TOKEN=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | base64 | tr -d '/+=' | head -c 64)
+        openclaw config set gateway.auth.token "\"$OC_GATEWAY_TOKEN\"" --json 2>/dev/null || {
+            print_warn "Could not set gateway token via CLI — set OPENCLAW_GATEWAY_TOKEN in your environment"
+        }
     fi
 
-    # Store the directory for docker-compose mount
-    OC_AUTH_PROFILES_DIR="$(dirname "$auth_file")"
+    # Detect gateway port
+    OC_GATEWAY_PORT=$(openclaw config get gateway.port 2>/dev/null | tr -d '"' || echo "18789")
+    [[ "$OC_GATEWAY_PORT" == "null" || -z "$OC_GATEWAY_PORT" ]] && OC_GATEWAY_PORT=18789
 
-    # Extract token
-    local token=""
-    token=$(jq -r '
-        .profiles["anthropic:manual"].token //
-        .profiles["anthropic:default"].token //
-        .profiles["anthropic:default"].key //
-        empty
-    ' "$auth_file" 2>/dev/null || true)
+    # Store the LLM endpoint URL for TARS services
+    OC_LLM_URL="http://localhost:${OC_GATEWAY_PORT}/v1/chat/completions"
 
-    if [[ -z "$token" ]]; then
-        print_warn "No Anthropic token found in OC auth — cron will retry"
-        return 0
-    fi
+    print_success "Gateway API enabled on port $OC_GATEWAY_PORT"
 
-    # Write to TARS secrets
-    mkdir -p "$TARS_HOME/.secrets"
-    echo "$token" > "$TARS_HOME/.secrets/claude-token"
-    chmod 600 "$TARS_HOME/.secrets/claude-token"
-
-    # Validate token format
-    if [[ "$token" == sk-ant-oat* ]]; then
-        print_success "Claude token imported (OAuth / Max subscription)"
-    elif [[ "$token" == sk-ant-api* ]]; then
-        print_success "Claude token imported (API key)"
-    else
-        print_warn "Claude token imported (unknown format — may still work)"
-    fi
-
-    # Quick connectivity test
-    echo -n "  Testing Claude connection..."
+    # Test the endpoint (gateway may not be running yet during first setup)
+    echo -n "  Testing gateway connection..."
     local status
-    if [[ "$token" == sk-ant-oat* ]]; then
-        status=$(curl -sf -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $token" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "anthropic-beta: oauth-2025-04-20" \
-            -H "content-type: application/json" \
-            -d '{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' \
-            https://api.anthropic.com/v1/messages 2>/dev/null || echo "000")
-    else
-        status=$(curl -sf -o /dev/null -w "%{http_code}" \
-            -H "x-api-key: $token" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "content-type: application/json" \
-            -d '{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' \
-            https://api.anthropic.com/v1/messages 2>/dev/null || echo "000")
-    fi
+    status=$(curl -sf -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $OC_GATEWAY_TOKEN" \
+        "http://localhost:${OC_GATEWAY_PORT}/v1/models" 2>/dev/null || echo "000")
 
     if [[ "$status" == "200" ]]; then
-        print_success "Claude connection verified"
-    elif [[ "$status" == "401" || "$status" == "403" ]]; then
-        print_warn "Claude auth failed (HTTP $status) — token may be expired"
-        print_info "Run 'openclaw setup' to re-authenticate, then 'tars reauth'"
+        print_success "Gateway API responding"
+    elif [[ "$status" == "000" ]]; then
+        print_warn "Gateway not running yet — will start after deployment"
+        print_info "Run 'openclaw gateway' or 'systemctl --user start openclaw-gateway' to start it"
     else
-        print_warn "Claude test returned HTTP $status — may work, check later"
+        print_warn "Gateway returned HTTP $status — check 'openclaw doctor'"
     fi
 }
 
-create_ops_alerts_channel() {
+setup_ops_alerts() {
     echo
-    print_info "TARS needs a channel for system alerts (auth failures, health issues)."
-
-    # Try to detect messaging platform from OC config
-    local oc_config="$HOME/.openclaw/openclaw.json"
-    local platform=""
-    if [[ -f "$oc_config" ]]; then
-        if jq -e '.channels.discord.enabled' "$oc_config" 2>/dev/null | grep -q true; then
-            platform="discord"
-        elif jq -e '.channels.slack.enabled' "$oc_config" 2>/dev/null | grep -q true; then
-            platform="slack"
-        fi
-    fi
-
-    if [[ "$platform" == "discord" ]]; then
-        echo "  Discord detected. You can either:"
-        echo "    1) Let TARS create a #tars-ops-alerts channel automatically"
-        echo "    2) Provide an existing channel ID"
-        local choice
-        choice=$(ask "Choice" "1")
-
-        if [[ "$choice" == "1" ]]; then
-            # Get first guild ID and bot token from OC config
-            local guild_id bot_token
-            guild_id=$(jq -r '.channels.discord.guilds | keys[0]' "$oc_config" 2>/dev/null || true)
-            # Get first account's token
-            bot_token=$(jq -r '.channels.discord.accounts | to_entries | map(select(.key != "default")) | .[0].value.token // empty' "$oc_config" 2>/dev/null || true)
-
-            if [[ -n "$guild_id" && -n "$bot_token" ]]; then
-                local response
-                response=$(curl -sf -X POST "https://discord.com/api/v10/guilds/${guild_id}/channels" \
-                    -H "Authorization: Bot $bot_token" \
-                    -H "Content-Type: application/json" \
-                    -d "{\"name\": \"tars-ops-alerts\", \"type\": 0, \"topic\": \"TARS system alerts — auth failures, health issues, service status\"}" 2>/dev/null || true)
-
-                local channel_id
-                channel_id=$(echo "$response" | jq -r '.id // empty' 2>/dev/null || true)
-                if [[ -n "$channel_id" ]]; then
-                    OPS_ALERTS_CHANNEL="$channel_id"
-                    print_success "Created #tars-ops-alerts (${channel_id})"
-                else
-                    print_warn "Could not create channel — provide ID manually"
-                    OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID" "")
-                fi
-            else
-                print_warn "Could not read Discord config — provide channel ID"
-                OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID" "")
-            fi
-        else
-            OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID" "")
-        fi
-    else
-        echo "  Provide the channel ID where TARS should post system alerts:"
-        OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID" "")
-    fi
+    print_info "TARS posts system alerts (LLM connection failures, health issues) to a channel."
+    echo "  Provide the channel ID where TARS should post alerts."
+    echo "  (You can find this in Discord/Slack by right-clicking a channel → Copy ID)"
+    echo
+    OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID (Enter to skip)" "")
 
     if [[ -n "${OPS_ALERTS_CHANNEL:-}" ]]; then
         print_success "Ops alerts channel: ${OPS_ALERTS_CHANNEL}"
@@ -484,9 +414,10 @@ WEB_PROXY_PORT=8899
 DASHBOARD_PORT=8765
 DASHBOARD_API_PORT=8766
 
-# OpenClaw (manages Claude auth, messaging, model selection)
-OPENCLAW_VERSION=${OPENCLAW_VERSION}
-OC_AUTH_PROFILES_DIR=${OC_AUTH_PROFILES_DIR:-${HOME}/.openclaw/agents/main/agent}
+# OpenClaw gateway (manages Claude auth, messaging, model selection)
+OC_GATEWAY_PORT=${OC_GATEWAY_PORT}
+OC_GATEWAY_TOKEN=${OC_GATEWAY_TOKEN}
+OC_LLM_URL=${OC_LLM_URL}
 
 # Ops alerts
 ${OPS_ALERTS_CHANNEL:+OPS_ALERTS_CHANNEL=${OPS_ALERTS_CHANNEL}}
@@ -540,14 +471,14 @@ ENVEOF
     echo "  Agent:     $AGENT_NAME ($AGENT_ROLE)"
     echo "  Dashboard: http://localhost:${DASHBOARD_PORT:-8765}"
     echo
-    echo "  Claude connection, messaging platform, and model are managed by OpenClaw."
-    echo "  Run 'openclaw setup' any time to reconfigure."
+    echo "  Claude auth and messaging are managed by OpenClaw."
+    echo "  LLM endpoint: ${OC_LLM_URL}"
     echo
     echo "  Next steps:"
     echo "    1. Say hello to $AGENT_NAME on your messaging platform"
     echo "    2. Dashboard: http://localhost:${DASHBOARD_PORT:-8765}"
     echo "    3. Add more agents: ./scripts/add-agent.sh"
-    echo "    4. Reconfigure OpenClaw: openclaw setup"
+    echo "    4. Reconfigure OpenClaw: openclaw onboard"
     echo
 }
 
