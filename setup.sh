@@ -156,20 +156,53 @@ collect_basics() {
 }
 
 # ============================================================
-# SECTION 3: OPENCLAW GATEWAY
+# SECTION 3: OPENCLAW GATEWAY + CREDENTIALS
 # ============================================================
-# OpenClaw handles Claude auth (Max subscription or API key),
-# messaging platform setup (Discord/Slack/Telegram/etc.),
-# model selection, and agent lifecycle.
+# We handle all credential collection and store secrets in our
+# own age-encrypted vault. OpenClaw is installed with --no-onboard
+# and configured programmatically via `openclaw config set`.
 #
 # TARS services use OC's Chat Completions endpoint for LLM
-# access (memory summaries, future use cases). A health check
-# monitors the endpoint and alerts if OC updates break it.
+# access. A health check monitors the endpoint and alerts if
+# OC updates break it.
 # ============================================================
 setup_openclaw() {
-    print_header "Section 3/6 — OpenClaw Gateway"
+    print_header "Section 3/6 — OpenClaw Gateway + Credentials"
+
+    # --- Init vault early (needed for storing secrets) ---
+    TARS_HOME="${TARS_HOME:-$SCRIPT_DIR}"
+    local age_key_path="$TARS_HOME/.secrets/age-key.txt"
+    mkdir -p "$TARS_HOME/.secrets"
+    if [[ ! -f "$age_key_path" ]]; then
+        age-keygen -o "$age_key_path" 2>/dev/null
+        chmod 600 "$age_key_path"
+        print_success "Age keypair generated"
+    else
+        print_success "Age keypair found"
+    fi
+    AGE_KEY_PATH="$age_key_path"
+    AGE_PUBKEY=$(age-keygen -y "$age_key_path" 2>/dev/null || grep "^# public key:" "$age_key_path" | awk '{print $NF}')
 
     # --- Install OpenClaw ---
+    install_openclaw
+
+    # --- Claude API key ---
+    collect_claude_credentials
+
+    # --- Messaging platform (Discord/Slack) ---
+    collect_messaging_credentials
+
+    # --- Configure OpenClaw programmatically ---
+    configure_openclaw
+
+    # --- Create vault resolver script for OC ---
+    create_vault_resolver
+
+    # --- Enable Chat Completions endpoint for TARS services ---
+    enable_gateway_api
+}
+
+install_openclaw() {
     if command -v openclaw &>/dev/null; then
         local oc_ver
         oc_ver=$(openclaw --version 2>/dev/null || echo "unknown")
@@ -177,131 +210,398 @@ setup_openclaw() {
     else
         echo
         print_info "Installing OpenClaw..."
-        print_info "This will install OpenClaw and any Node.js version it requires."
         echo
         curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
         echo
 
+        # Find openclaw in common install locations
+        for p in "$HOME/.npm-global/bin" "$HOME/.local/bin" "/usr/local/bin"; do
+            if [[ -x "$p/openclaw" ]]; then
+                export PATH="$p:$PATH"
+                break
+            fi
+        done
+
         if command -v openclaw &>/dev/null; then
             print_success "OpenClaw installed"
         else
-            # Check common install locations
-            for p in "$HOME/.npm-global/bin" "$HOME/.local/bin" "/usr/local/bin"; do
-                if [[ -x "$p/openclaw" ]]; then
-                    export PATH="$p:$PATH"
-                    break
-                fi
-            done
-            if ! command -v openclaw &>/dev/null; then
-                print_error "OpenClaw installation failed"
-                echo "  Install manually: https://docs.openclaw.ai/install"
-                exit 1
-            fi
-            print_success "OpenClaw installed"
+            print_error "OpenClaw installation failed"
+            echo "  Install manually: https://docs.openclaw.ai/install"
+            exit 1
         fi
     fi
+}
 
-    # --- Onboard (Claude auth + messaging) ---
-    local oc_config="$HOME/.openclaw/openclaw.json"
-    if [[ -f "$oc_config" ]]; then
-        print_success "OpenClaw config found"
-        echo
-        local ans
-        ans=$(ask_yn "Re-run OpenClaw onboarding? (N = keep existing config)" "n")
-        if [[ "$ans" =~ ^[Yy] ]]; then
-            echo
-            print_info "Launching OpenClaw onboarding..."
-            print_info "This configures: Claude connection, messaging platform, model selection"
-            echo
-            openclaw onboard --install-daemon
-        fi
-    else
-        echo
-        print_info "OpenClaw needs initial configuration."
-        print_info "This will set up your Claude connection, messaging platform, and model."
-        echo
-        openclaw onboard --install-daemon
-    fi
-
-    # Verify config exists after onboarding
-    if [[ ! -f "$oc_config" ]]; then
-        print_error "OpenClaw config not found after onboarding"
-        echo "  Run 'openclaw onboard --install-daemon' manually, then re-run this script"
+collect_claude_credentials() {
+    echo
+    print_info "Claude LLM connection"
+    echo "  TARS needs an Anthropic API key to connect to Claude."
+    echo "  Get one at: https://console.anthropic.com/settings/keys"
+    echo
+    ANTHROPIC_API_KEY=$(ask_secret "Anthropic API key (starts with sk-ant-)")
+    if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+        print_error "Anthropic API key is required"
         exit 1
     fi
 
-    print_success "OpenClaw configured"
+    # Validate format
+    if [[ "$ANTHROPIC_API_KEY" == sk-ant-* ]]; then
+        print_success "API key format valid"
+    else
+        print_warn "Key doesn't start with sk-ant- — may still work"
+    fi
 
-    # --- Enable Chat Completions endpoint for TARS services ---
-    enable_gateway_api
+    # Encrypt to vault
+    echo "$ANTHROPIC_API_KEY" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/anthropic-key.age"
+    chmod 600 "$TARS_HOME/.secrets/anthropic-key.age"
+    print_success "API key encrypted to vault"
 
-    # --- Set up ops alerts channel ---
-    setup_ops_alerts
+    # Test connection
+    echo -n "  Testing Claude connection..."
+    local status
+    status=$(curl -sf -o /dev/null -w "%{http_code}" \
+        -H "x-api-key: $ANTHROPIC_API_KEY" \
+        -H "anthropic-version: 2023-06-01" \
+        -H "content-type: application/json" \
+        -d '{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' \
+        https://api.anthropic.com/v1/messages 2>/dev/null || echo "000")
+
+    if [[ "$status" == "200" ]]; then
+        print_success "Claude connection verified"
+    elif [[ "$status" == "401" || "$status" == "403" ]]; then
+        print_warn "Auth failed (HTTP $status) — check your API key"
+    else
+        print_warn "Claude returned HTTP $status — may work, check later"
+    fi
+}
+
+collect_messaging_credentials() {
+    echo
+    print_info "Messaging platform"
+    echo "  How will users talk to the agent?"
+    echo "    1) Discord"
+    echo "    2) Slack"
+    echo "    3) Telegram"
+    echo "    4) WhatsApp"
+    echo "    5) Signal"
+    echo "    6) Skip for now"
+    local platform_choice
+    platform_choice=$(ask "Choice" "1")
+
+    case "$platform_choice" in
+        1) MESSAGING_PLATFORM="discord"; setup_discord ;;
+        2) MESSAGING_PLATFORM="slack"; setup_slack ;;
+        3) MESSAGING_PLATFORM="telegram"; setup_telegram ;;
+        4) MESSAGING_PLATFORM="whatsapp"; setup_whatsapp ;;
+        5) MESSAGING_PLATFORM="signal"; setup_signal ;;
+        *) MESSAGING_PLATFORM="none"
+           print_warn "No messaging platform — agent will only be accessible via dashboard"
+           ;;
+    esac
+}
+
+setup_discord() {
+    echo
+    echo -e "  ${BLUE}Discord Bot Setup${RESET}"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo "  Follow these steps to create your bot:"
+    echo
+    echo "  1. Go to https://discord.com/developers/applications"
+    echo "  2. Click 'New Application' — name it (e.g. your agent name)"
+    echo "  3. Go to Bot → click 'Reset Token' → copy the token"
+    echo "  4. Under 'Privileged Gateway Intents' enable:"
+    echo "     - Message Content Intent (required)"
+    echo "     - Server Members Intent (recommended)"
+    echo "  5. Go to OAuth2 → URL Generator"
+    echo "     - Select scopes: bot, applications.commands"
+    echo "     - Select permissions: View Channels, Send Messages,"
+    echo "       Read Message History, Embed Links, Attach Files"
+    echo "  6. Copy the generated URL → open in browser → add to your server"
+    echo "  7. In Discord: right-click your server → Copy Server ID"
+    echo "     (Enable Developer Mode in Settings → Advanced first)"
+    echo "  8. Create two channels:"
+    echo "     - #chat (or similar) — where users talk to the agent"
+    echo "     - #ops-alerts — where the bot posts system alerts"
+    echo "  9. Right-click each channel → Copy Channel ID"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo
+
+    DISCORD_BOT_TOKEN=$(ask_secret "Discord bot token")
+    if [[ -z "$DISCORD_BOT_TOKEN" ]]; then
+        print_error "Discord bot token is required"
+        exit 1
+    fi
+
+    # Encrypt to vault
+    echo "$DISCORD_BOT_TOKEN" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/discord-token.age"
+    chmod 600 "$TARS_HOME/.secrets/discord-token.age"
+    print_success "Discord token encrypted to vault"
+
+    DISCORD_GUILD_ID=$(ask "Discord server (guild) ID" "")
+    [[ -z "$DISCORD_GUILD_ID" ]] && { print_error "Server ID is required"; exit 1; }
+
+    DISCORD_OWNER_ID=$(ask "Your Discord user ID" "")
+
+    OPS_ALERTS_CHANNEL=$(ask "Ops-alerts channel ID" "")
+    [[ -n "$OPS_ALERTS_CHANNEL" ]] && print_success "Ops alerts: #ops-alerts ($OPS_ALERTS_CHANNEL)"
+
+    print_success "Discord configured"
+}
+
+setup_slack() {
+    echo
+    echo -e "  ${BLUE}Slack Bot Setup${RESET}"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo "  Follow these steps to create your bot:"
+    echo
+    echo "  1. Go to https://api.slack.com/apps → Create New App"
+    echo "  2. Choose 'From scratch' — name it, select your workspace"
+    echo "  3. Go to OAuth & Permissions → add Bot Token Scopes:"
+    echo "     - chat:write, channels:read, channels:history"
+    echo "     - groups:read, groups:history, im:read, im:history"
+    echo "     - users:read"
+    echo "  4. Install App to Workspace → copy Bot User OAuth Token"
+    echo "  5. Create two channels:"
+    echo "     - #chat (or similar) — where users talk to the agent"
+    echo "     - #ops-alerts — where the bot posts system alerts"
+    echo "  6. Invite the bot to both channels: /invite @botname"
+    echo "  7. Right-click each channel → Copy link → ID is at the end"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo
+
+    SLACK_BOT_TOKEN=$(ask_secret "Slack Bot User OAuth Token (xoxb-...)")
+    if [[ -z "$SLACK_BOT_TOKEN" ]]; then
+        print_error "Slack bot token is required"
+        exit 1
+    fi
+
+    # Encrypt to vault
+    echo "$SLACK_BOT_TOKEN" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/slack-token.age"
+    chmod 600 "$TARS_HOME/.secrets/slack-token.age"
+    print_success "Slack token encrypted to vault"
+
+    OPS_ALERTS_CHANNEL=$(ask "Ops-alerts channel ID" "")
+    [[ -n "$OPS_ALERTS_CHANNEL" ]] && print_success "Ops alerts: #ops-alerts ($OPS_ALERTS_CHANNEL)"
+
+    print_success "Slack configured"
+}
+
+setup_telegram() {
+    echo
+    echo -e "  ${BLUE}Telegram Bot Setup${RESET}"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo "  1. Open Telegram and message @BotFather"
+    echo "  2. Send /newbot and follow the prompts"
+    echo "  3. Copy the bot token BotFather gives you"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo
+
+    TELEGRAM_BOT_TOKEN=$(ask_secret "Telegram bot token")
+    if [[ -z "$TELEGRAM_BOT_TOKEN" ]]; then
+        print_error "Telegram bot token is required"
+        exit 1
+    fi
+
+    echo "$TELEGRAM_BOT_TOKEN" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/telegram-token.age"
+    chmod 600 "$TARS_HOME/.secrets/telegram-token.age"
+    print_success "Telegram token encrypted to vault"
+
+    echo
+    echo "  For ops alerts, create a group or channel and add the bot."
+    OPS_ALERTS_CHANNEL=$(ask "Ops-alerts chat ID (Enter to skip)" "")
+    [[ -n "$OPS_ALERTS_CHANNEL" ]] && print_success "Ops alerts configured"
+
+    print_success "Telegram configured"
+}
+
+setup_whatsapp() {
+    echo
+    echo -e "  ${BLUE}WhatsApp Setup${RESET}"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo "  WhatsApp connects via QR code pairing through OpenClaw."
+    echo "  After setup completes, run:"
+    echo "    openclaw channels pair whatsapp"
+    echo "  and scan the QR code with your phone."
+    echo "  ─────────────────────────────────────────────────────────"
+    echo
+
+    print_info "WhatsApp will be paired after deployment."
+    OPS_ALERTS_CHANNEL=""
+    print_success "WhatsApp selected (pair after deploy)"
+}
+
+setup_signal() {
+    echo
+    echo -e "  ${BLUE}Signal Setup${RESET}"
+    echo "  ─────────────────────────────────────────────────────────"
+    echo "  Signal connects via device linking through OpenClaw."
+    echo "  After setup completes, run:"
+    echo "    openclaw channels pair signal"
+    echo "  and link the device from your Signal app."
+    echo "  ─────────────────────────────────────────────────────────"
+    echo
+
+    print_info "Signal will be paired after deployment."
+    OPS_ALERTS_CHANNEL=""
+    print_success "Signal selected (pair after deploy)"
+}
+
+create_vault_resolver() {
+    # Script that OC calls to read secrets from our age vault
+    local resolver_path="$TARS_HOME/scripts/vault-resolver.sh"
+    mkdir -p "$TARS_HOME/scripts"
+    cat > "$resolver_path" << 'RESOLVEREOF'
+#!/usr/bin/env bash
+# TARS vault resolver — called by OpenClaw exec secret provider
+# Reads encrypted secrets from age vault and returns them in OC's protocol format
+set -euo pipefail
+
+TARS_HOME="${TARS_HOME:-/opt/tars}"
+AGE_KEY="${AGE_KEY_PATH:-$TARS_HOME/.secrets/age-key.txt}"
+
+# Read request from stdin
+request=$(cat)
+provider=$(echo "$request" | jq -r '.provider')
+ids=$(echo "$request" | jq -r '.ids[]')
+
+# Map secret IDs to vault files
+declare -A secret_map
+secret_map["anthropic-api-key"]="$TARS_HOME/.secrets/anthropic-key.age"
+secret_map["discord-bot-token"]="$TARS_HOME/.secrets/discord-token.age"
+secret_map["slack-bot-token"]="$TARS_HOME/.secrets/slack-token.age"
+secret_map["telegram-bot-token"]="$TARS_HOME/.secrets/telegram-token.age"
+secret_map["gateway-token"]="$TARS_HOME/.secrets/gateway-token.age"
+
+# Build response
+values="{}"
+for id in $ids; do
+    vault_file="${secret_map[$id]:-}"
+    if [[ -n "$vault_file" && -f "$vault_file" ]]; then
+        val=$(age -d -i "$AGE_KEY" "$vault_file" 2>/dev/null | tr -d '\n')
+        values=$(echo "$values" | jq --arg k "$id" --arg v "$val" '. + {($k): $v}')
+    else
+        values=$(echo "$values" | jq --arg k "$id" '. + {($k): null}')
+    fi
+done
+
+echo "{\"protocolVersion\": 1, \"values\": $values}"
+RESOLVEREOF
+    chmod 700 "$resolver_path"
+    print_success "Vault resolver script created"
+}
+
+configure_openclaw() {
+    echo
+    print_info "Configuring OpenClaw programmatically..."
+
+    # Ensure OC config dir exists
+    mkdir -p "$HOME/.openclaw"
+
+    # --- Model provider: Anthropic ---
+    # Point API key at our vault via exec provider
+    openclaw config set secrets.providers.tars_vault.source '"exec"' --json 2>/dev/null || true
+    openclaw config set secrets.providers.tars_vault.command "\"$TARS_HOME/scripts/vault-resolver.sh\"" --json 2>/dev/null || true
+    openclaw config set secrets.providers.tars_vault.passEnv '["TARS_HOME", "AGE_KEY_PATH"]' --json 2>/dev/null || true
+    openclaw config set secrets.providers.tars_vault.jsonOnly true --json 2>/dev/null || true
+
+    # Set Anthropic API key via SecretRef to our vault
+    openclaw config set models.providers.anthropic.apiKey.source '"exec"' --json 2>/dev/null || true
+    openclaw config set models.providers.anthropic.apiKey.provider '"tars_vault"' --json 2>/dev/null || true
+    openclaw config set models.providers.anthropic.apiKey.id '"anthropic-api-key"' --json 2>/dev/null || true
+
+    # Set default model
+    openclaw config set agents.defaults.model.primary '"anthropic/claude-sonnet-4-6"' --json 2>/dev/null || true
+    print_success "Claude model configured (via vault)"
+
+    # --- Messaging platform ---
+    if [[ "$MESSAGING_PLATFORM" == "discord" ]]; then
+        # Discord token via SecretRef
+        openclaw config set channels.discord.token.source '"exec"' --json 2>/dev/null || true
+        openclaw config set channels.discord.token.provider '"tars_vault"' --json 2>/dev/null || true
+        openclaw config set channels.discord.token.id '"discord-bot-token"' --json 2>/dev/null || true
+        openclaw config set channels.discord.enabled true --json 2>/dev/null || true
+        openclaw config set channels.discord.groupPolicy '"allowlist"' --json 2>/dev/null || true
+
+        if [[ -n "${DISCORD_GUILD_ID:-}" ]]; then
+            # Configure guild allowlist
+            openclaw config set "channels.discord.guilds.${DISCORD_GUILD_ID}.requireMention" true --json 2>/dev/null || true
+            if [[ -n "${DISCORD_OWNER_ID:-}" ]]; then
+                openclaw config set "channels.discord.guilds.${DISCORD_GUILD_ID}.users" "[\"${DISCORD_OWNER_ID}\"]" --json 2>/dev/null || true
+            fi
+        fi
+        print_success "Discord channel configured (via vault)"
+
+    elif [[ "$MESSAGING_PLATFORM" == "slack" ]]; then
+        openclaw config set channels.slack.token.source '"exec"' --json 2>/dev/null || true
+        openclaw config set channels.slack.token.provider '"tars_vault"' --json 2>/dev/null || true
+        openclaw config set channels.slack.token.id '"slack-bot-token"' --json 2>/dev/null || true
+        openclaw config set channels.slack.enabled true --json 2>/dev/null || true
+        print_success "Slack channel configured (via vault)"
+
+    elif [[ "$MESSAGING_PLATFORM" == "telegram" ]]; then
+        openclaw config set channels.telegram.token.source '"exec"' --json 2>/dev/null || true
+        openclaw config set channels.telegram.token.provider '"tars_vault"' --json 2>/dev/null || true
+        openclaw config set channels.telegram.token.id '"telegram-bot-token"' --json 2>/dev/null || true
+        openclaw config set channels.telegram.enabled true --json 2>/dev/null || true
+        print_success "Telegram channel configured (via vault)"
+
+    elif [[ "$MESSAGING_PLATFORM" == "whatsapp" ]]; then
+        openclaw config set channels.whatsapp.enabled true --json 2>/dev/null || true
+        print_success "WhatsApp channel enabled (pair after deploy)"
+
+    elif [[ "$MESSAGING_PLATFORM" == "signal" ]]; then
+        openclaw config set channels.signal.enabled true --json 2>/dev/null || true
+        print_success "Signal channel enabled (pair after deploy)"
+    fi
+
+    # --- Gateway ---
+    # Generate and store gateway auth token
+    OC_GATEWAY_TOKEN=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | base64 | tr -d '/+=' | head -c 64)
+    echo "$OC_GATEWAY_TOKEN" | age -r "$AGE_PUBKEY" -o "$TARS_HOME/.secrets/gateway-token.age"
+    chmod 600 "$TARS_HOME/.secrets/gateway-token.age"
+
+    openclaw config set gateway.auth.token "\"$OC_GATEWAY_TOKEN\"" --json 2>/dev/null || true
+    openclaw config set gateway.auth.mode '"token"' --json 2>/dev/null || true
+    openclaw config set gateway.bind '"lan"' --json 2>/dev/null || true
+
+    # Install daemon
+    openclaw gateway install 2>/dev/null || true
+
+    print_success "OpenClaw fully configured"
 }
 
 enable_gateway_api() {
     echo
-    print_info "Enabling OpenClaw gateway API for TARS services..."
+    print_info "Enabling gateway LLM endpoint for TARS services..."
 
-    # Enable the OpenAI-compatible chat completions endpoint
-    openclaw config set gateway.http.endpoints.chatCompletions.enabled true --json 2>/dev/null || {
-        print_warn "Could not enable chat completions endpoint via CLI"
-        print_info "Add this to your openclaw.json manually:"
-        print_info '  "gateway": { "http": { "endpoints": { "chatCompletions": { "enabled": true } } } }'
-    }
-
-    # Read or generate the gateway auth token
-    OC_GATEWAY_TOKEN=$(openclaw config get gateway.auth.token 2>/dev/null | tr -d '"' || true)
-    if [[ -z "$OC_GATEWAY_TOKEN" || "$OC_GATEWAY_TOKEN" == "null" ]]; then
-        # Check env var
-        OC_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
-    fi
-    if [[ -z "$OC_GATEWAY_TOKEN" ]]; then
-        # Generate a token for the gateway
-        OC_GATEWAY_TOKEN=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | base64 | tr -d '/+=' | head -c 64)
-        openclaw config set gateway.auth.token "\"$OC_GATEWAY_TOKEN\"" --json 2>/dev/null || {
-            print_warn "Could not set gateway token via CLI — set OPENCLAW_GATEWAY_TOKEN in your environment"
-        }
-    fi
+    openclaw config set gateway.http.endpoints.chatCompletions.enabled true --json 2>/dev/null || true
 
     # Detect gateway port
     OC_GATEWAY_PORT=$(openclaw config get gateway.port 2>/dev/null | tr -d '"' || echo "18789")
     [[ "$OC_GATEWAY_PORT" == "null" || -z "$OC_GATEWAY_PORT" ]] && OC_GATEWAY_PORT=18789
 
-    # Store the LLM endpoint URL for TARS services
     OC_LLM_URL="http://localhost:${OC_GATEWAY_PORT}/v1/chat/completions"
 
     print_success "Gateway API enabled on port $OC_GATEWAY_PORT"
+    print_info "LLM endpoint: $OC_LLM_URL"
 
-    # Test the endpoint (gateway may not be running yet during first setup)
-    echo -n "  Testing gateway connection..."
+    # Start gateway and test
+    echo -n "  Starting gateway..."
+    systemctl --user start openclaw-gateway 2>/dev/null || openclaw gateway &>/dev/null &
+    sleep 3
+
     local status
     status=$(curl -sf -o /dev/null -w "%{http_code}" \
         -H "Authorization: Bearer $OC_GATEWAY_TOKEN" \
         "http://localhost:${OC_GATEWAY_PORT}/v1/models" 2>/dev/null || echo "000")
 
     if [[ "$status" == "200" ]]; then
-        print_success "Gateway API responding"
+        print_success "Gateway responding"
     elif [[ "$status" == "000" ]]; then
-        print_warn "Gateway not running yet — will start after deployment"
-        print_info "Run 'openclaw gateway' or 'systemctl --user start openclaw-gateway' to start it"
+        print_warn "Gateway not responding yet — may need manual start"
+        print_info "Try: openclaw gateway"
     else
-        print_warn "Gateway returned HTTP $status — check 'openclaw doctor'"
-    fi
-}
-
-setup_ops_alerts() {
-    echo
-    print_info "TARS posts system alerts (LLM connection failures, health issues) to a channel."
-    echo "  Provide the channel ID where TARS should post alerts."
-    echo "  (You can find this in Discord/Slack by right-clicking a channel → Copy ID)"
-    echo
-    OPS_ALERTS_CHANNEL=$(ask "Ops alerts channel ID (Enter to skip)" "")
-
-    if [[ -n "${OPS_ALERTS_CHANNEL:-}" ]]; then
-        print_success "Ops alerts channel: ${OPS_ALERTS_CHANNEL}"
-    else
-        print_warn "No ops-alerts channel set — alerts will only appear in logs"
+        print_warn "Gateway returned HTTP $status — check: openclaw doctor"
     fi
 }
 
@@ -382,18 +682,10 @@ generate_and_deploy() {
     TARS_HOME="${TARS_HOME:-$SCRIPT_DIR}"
     DOCKER_HOST_IP=$(docker network inspect bridge --format='{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null || echo "172.17.0.1")
 
-    # Generate age keypair if not present
-    local age_key_path="$TARS_HOME/.secrets/age-key.txt"
-    mkdir -p "$TARS_HOME/.secrets" "$TARS_HOME/.secrets-vault"
-    if [[ ! -f "$age_key_path" ]]; then
-        age-keygen -o "$age_key_path" 2>/dev/null
-        chmod 600 "$age_key_path"
-        print_success "Age keypair generated"
-    else
-        print_success "Age keypair found"
-    fi
-    local age_pubkey
-    age_pubkey=$(age-keygen -y "$age_key_path" 2>/dev/null || grep "^# public key:" "$age_key_path" | awk '{print $NF}')
+    # Age keypair already created in Section 3
+    local age_key_path="$AGE_KEY_PATH"
+    local age_pubkey="$AGE_PUBKEY"
+    mkdir -p "$TARS_HOME/.secrets-vault"
 
     # Write .env
     cat > "$SCRIPT_DIR/.env" << ENVEOF
