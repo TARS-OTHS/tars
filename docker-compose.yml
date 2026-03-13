@@ -82,8 +82,8 @@ services:
       - MEMORY_API_URL=http://memory-api:8897
       - BIND_HOST=0.0.0.0
     ports:
-      - "${DASHBOARD_PORT:-8765}:8765"
-      - "${DASHBOARD_API_PORT:-8766}:8766"
+      - "127.0.0.1:${DASHBOARD_PORT:-8765}:8765"
+      - "127.0.0.1:${DASHBOARD_API_PORT:-8766}:8766"
     depends_on:
       memory-api:
         condition: service_healthy
@@ -148,7 +148,7 @@ services:
       - memory-data:/app/data
       - cron-logs:/var/log
       - ${TARS_HOME:-.}/.secrets:/app/secrets
-      - ${OC_AUTH_PROFILES_DIR:-${HOME}/.openclaw/agents/main/agent}:/oc-auth:ro
+      - ${HOME}/.openclaw:/oc-config:ro
     depends_on:
       memory-api:
         condition: service_healthy
