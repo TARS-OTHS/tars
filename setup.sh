@@ -679,6 +679,9 @@ configure_openclaw() {
     "load": {
       "paths": ["${TARS_HOME}/plugins/memory-tools"]
     },
+    "slots": {
+      "memory": "tars-memory"
+    },
     "entries": {
       "tars-memory": {
         "enabled": true,
