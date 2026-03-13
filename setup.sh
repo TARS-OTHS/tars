@@ -806,9 +806,9 @@ ENVEOF
     print_success "Services started"
 
     print_header "Health Checks"
-    wait_for_service "http://localhost:${AUTH_PROXY_PORT:-9100}/ops/health" "auth-proxy" 60
-    wait_for_service "http://localhost:${MEMORY_API_PORT:-8897}/health" "memory-api" 60
-    wait_for_service "http://localhost:${EMBEDDING_PORT:-8896}/health" "embedding-service" 90
+    wait_for_service "http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}/ops/health" "auth-proxy" 90
+    wait_for_service "http://${DOCKER_HOST_IP}:${MEMORY_API_PORT:-8897}/status" "memory-api" 90
+    wait_for_service "http://${DOCKER_HOST_IP}:${EMBEDDING_PORT:-8896}/health" "embedding-service" 120
 
     print_header "Done!"
     echo
