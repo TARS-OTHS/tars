@@ -599,10 +599,10 @@ configure_openclaw() {
             fi
             channel_block="\"discord\": {
         \"enabled\": true,
-        \"botToken\": \"${discord_token}\",
+        \"token\": \"${discord_token}\",
         \"groupPolicy\": \"allowlist\",
         ${guild_block}
-        \"dmPolicy\": \"allowlist\"
+        \"dmPolicy\": \"pairing\"
       }"
             ;;
         slack)
