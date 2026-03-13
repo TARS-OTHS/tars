@@ -2,7 +2,7 @@
 
 ## Overview
 
-TARS is a layered platform for running AI agents with persistent memory, secure credential handling, and Docker-based isolation.
+TARS is a layered platform for running AI agents with persistent memory, secure credential handling, team awareness, and Docker-based isolation.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -14,10 +14,14 @@ TARS is a layered platform for running AI agents with persistent memory, secure 
 │                   OpenClaw Gateway                           │
 │  Message routing · Agent lifecycle · Tool dispatch            │
 │  Session management · Cron scheduling                        │
+│                                                              │
+│  Plugins:                                                    │
+│    tars-memory — auto-recall, session state persistence       │
+│    tars-team   — team context injection, roster management    │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────┐
-│                    Service Layer                              │
+│                    Service Layer (Docker)                     │
 │                                                              │
 │  ┌────────────┐ ┌────────────┐ ┌──────────────────────────┐ │
 │  │ Auth Proxy │ │ Memory DB  │ │   Embedding Service      │ │
@@ -52,8 +56,8 @@ TARS is a layered platform for running AI agents with persistent memory, secure 
 │  - API access only through auth proxy                        │
 │                                                              │
 │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐       │
-│  │ Agent 1 │  │ Agent 2 │  │ Agent 3 │  │ Agent N │       │
-│  │ (main)  │  │         │  │         │  │         │       │
+│  │ T.A.R.S │  │ Agent 2 │  │ Agent 3 │  │ Agent N │       │
+│  │ (coord) │  │ (spec)  │  │ (spec)  │  │         │       │
 │  └─────────┘  └─────────┘  └─────────┘  └─────────┘       │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -64,13 +68,28 @@ TARS is a layered platform for running AI agents with persistent memory, secure 
 
 The gateway is the orchestration layer. It:
 - Receives messages from Discord, Signal, Telegram
-- Routes them to the correct agent
+- Routes them to the correct agent (via @mention in guilds)
 - Manages agent container lifecycle (start, stop, restart)
 - Dispatches tool calls from agents
 - Handles cron-triggered agent activations
 - Manages session state and heartbeats
+- Loads plugins (tars-memory, tars-team) for extended functionality
 
 The gateway runs on the host (not containerized) as it needs Docker socket access to manage agent containers.
+
+### Plugins
+
+#### tars-memory
+- Hooks `before_agent_start` to inject session state + relevant memories
+- Hooks `agent_end` to auto-save session state
+- Provides native memory tools (`memory_search`, `memory_store`, `session_state_save`, etc.)
+- Config: memory API URL, auto-recall toggle, max recall results
+
+#### tars-team
+- Hooks `before_prompt_build` to inject `<user-context>` and `<team>` blocks
+- Resolves sender by Discord ID against `config/team.json`
+- Provides team management tools (`team_list`, `team_get`, `team_add`, `team_update`, `team_remove`, `team_sync`)
+- Auto-syncs Discord allowlists in `openclaw.json` when team changes
 
 ### Auth Proxy (:9100)
 
@@ -81,7 +100,7 @@ Central credential manager. All outbound API calls from agents go through the au
 - Logs all API usage per agent
 - Hosts ops proxy endpoints for self-service infrastructure
 
-**Key principle:** Raw API keys never enter agent containers. The auth proxy is the only component that reads `.secrets/`.
+**Key principle:** Raw API keys never enter agent containers. All secrets are stored in an age-encrypted vault. The auth proxy is the only component that reads secrets.
 
 Routes are configured per integration:
 ```
@@ -101,10 +120,11 @@ Persistent memory system that gives agents continuity across sessions.
 
 **Features:**
 - Semantic search (via embedding service)
-- Session state persistence
+- Session state persistence (channel-scoped)
 - Entity and relationship extraction
 - Confidence-based lifecycle (decay → archive → purge)
 - Agent-scoped memories (each agent has its own namespace)
+- Shared memory scope for cross-agent knowledge
 - Auto-extraction from session logs
 
 **Memory types:** semantic, episodic, procedural
@@ -149,6 +169,91 @@ Host-level crontab entries that maintain the memory system:
 - **Context regeneration** (every 30 min): rebuild context files from memory
 - **Memory promotion** (every 12h): promote high-confidence memories to context files
 
+## Agent Model
+
+### Topology
+
+Agents follow an emergent topology — no fixed org chart. See [MULTI-AGENT-SPEC.md](MULTI-AGENT-SPEC.md).
+
+- **Day 1:** T.A.R.S is the sole coordinator
+- **As needs emerge:** Specialist agents are added via `scripts/add-agent.sh`
+- **Structure adapts:** Hub-and-spoke, mesh, or hybrid — whatever the work requires
+
+### Roles
+
+| Role | Description |
+|------|-------------|
+| **Coordinator** | Routes tasks, delegates to specialists, reports to humans. T.A.R.S is the default coordinator. |
+| **Specialist** | Deep expertise in one domain. Called by coordinators or directly by humans. |
+| **Assistant** | General-purpose, handles tasks that don't need a specialist. |
+
+### Agent Workspace
+
+Each agent has a workspace with identity and operating files:
+
+```
+~/.openclaw/workspaces/<agent-id>/
+  SOUL.md          — personality, values, boundaries
+  IDENTITY.md      — id, name, role, domain
+  AGENTS.md        — operating rules (session startup, memory, credentials)
+  TOOLS.md         — available services and endpoints
+  MEMORY.md        — memory system reference
+```
+
+The main agent (T.A.R.S) has its workspace at `~/.openclaw/workspace/` (legacy path from initial setup).
+
+### Agent Lifecycle
+
+**Creation:** Owner tells T.A.R.S to create an agent → T.A.R.S collects details conversationally → runs `scripts/add-agent.sh` → agent is live. See [agent-management skill](../skills/agent-management.md).
+
+**Destruction:** Owner tells T.A.R.S to remove an agent → T.A.R.S confirms → runs `scripts/remove-agent.sh` → workspace archived (not deleted).
+
+## Team System
+
+A single registry at `config/team.json` contains all humans and agents. See [TEAM-SPEC.md](TEAM-SPEC.md).
+
+- **Humans:** name, role, responsibilities, contact methods, access level (owner/admin)
+- **Agents:** name, role, domain, capabilities, home channel
+
+The tars-team plugin injects team context into every agent prompt (~300 tokens), so agents always know who they're talking to and who else is on the team.
+
+**Team management** is conversational through T.A.R.S — owner-only. See [team-management skill](../skills/team-management.md).
+
+## Skills
+
+Skills are instruction documents that tell agents how to handle specific workflows. Registered in `skills/registry.json`.
+
+| Skill | Category | Description |
+|-------|----------|-------------|
+| `team-management` | system | Add, update, remove team members |
+| `agent-management` | system | Create and destroy persistent agents |
+| `tavily-search` | research | Web search via Tavily API |
+| `coding-agent` | development | Delegate coding tasks to sub-agents |
+| `healthcheck` | development | Security auditing and hardening |
+| + others | various | See `skills/registry.json` for full list |
+
+## Security
+
+### Credential Management
+
+All secrets are stored in an age-encrypted vault (`$TARS_HOME/.secrets-vault/`). The vault resolver script decrypts on demand for the auth proxy. No plaintext keys in `.env` or config files.
+
+### Agent Isolation
+
+- **Filesystem:** Own workspace volume, read-only root
+- **Network:** No direct internet; web proxy and auth proxy only
+- **Resources:** Memory and CPU limits per container
+- **Credentials:** No access to raw API keys — auth proxy injects them
+- **Messaging:** `requireMention: true` in Discord guilds — agents only process messages they're @mentioned in
+- **Memory:** Agent-scoped — agents read their own scope by default, shared scope explicitly
+
+### Access Levels
+
+| Level | Capabilities |
+|-------|-------------|
+| **Owner** | All agents, all tools, exec auto-approved, config changes, team management |
+| **Admin** | All agents, all tools, exec with approval, no config changes |
+
 ## Networking
 
 All services bind to the Docker bridge network (`172.17.0.1`), not public interfaces. Agent containers access services via bridge IP + port.
@@ -163,25 +268,19 @@ The dashboard binds to `0.0.0.0:8765` by default but should be access-controlled
 
 ## Configuration
 
-`platform.yaml` is the single source of truth. The setup wizard generates it, and it drives:
-- Which services are enabled
-- Port assignments
-- Agent definitions
-- Integration routes
-- Backup schedules
-- Security settings
+The setup wizard (`setup.sh`) generates all configuration:
+- `~/.openclaw/openclaw.json` — Gateway config (agents, channels, tools, plugins, secrets)
+- `~/.openclaw/exec-approvals.json` — Per-agent exec permissions
+- `config/team.json` — Team registry (humans + agents)
+- `.env` — Docker service ports and paths (no secrets)
+- `.secrets-vault/` — Age-encrypted credential vault
 
-See the [spec](../docs/specs/PLATFORM_SPEC.md) for the full schema.
+Post-install changes are handled through:
+- `scripts/update.sh` — Pull repo changes, rebuild if needed, restart
+- `scripts/add-agent.sh` — Add a new persistent agent
+- `scripts/remove-agent.sh` — Remove an agent (archive workspace)
+- T.A.R.S conversational team/agent management via skills
 
-## Agent Isolation Model
+## Updates
 
-Each agent is a peer — not hierarchical. Isolation is enforced at the Docker level:
-
-- **Filesystem:** Own workspace volume, read-only root
-- **Network:** No direct internet; web proxy and auth proxy only
-- **Resources:** Memory and CPU limits per container
-- **Credentials:** No access to raw API keys
-- **Messaging:** Own Discord server (server-per-agent is the only reliable message isolation with OpenClaw)
-- **Memory:** Agent-scoped — agents can't read each other's memories
-
-Agents coordinate through shared channels (like this TARS project channel) when needed, but can't access each other's workspaces or data.
+`scripts/update.sh` handles in-place updates: git pull, plugin dependency install, conditional Docker rebuild, gateway restart, health checks. Supports `--no-rebuild` and `--dry-run`.
