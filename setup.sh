@@ -600,12 +600,15 @@ configure_openclaw() {
                 [[ -n "${DISCORD_OWNER_ID:-}" ]] && users_line="\"users\": [\"${DISCORD_OWNER_ID}\"],"
                 guild_block="\"guilds\": { \"${DISCORD_GUILD_ID}\": { ${users_line} \"requireMention\": true } },"
             fi
+            local allow_from=""
+            [[ -n "${DISCORD_OWNER_ID:-}" ]] && allow_from="\"allowFrom\": [\"${DISCORD_OWNER_ID}\"],"
             channel_block="\"discord\": {
         \"enabled\": true,
         \"token\": \"${discord_token}\",
         \"groupPolicy\": \"allowlist\",
         ${guild_block}
-        \"dmPolicy\": \"pairing\"
+        ${allow_from}
+        \"dmPolicy\": \"allowlist\"
       }"
             ;;
         slack)
@@ -1061,12 +1064,11 @@ USEREOF
     echo "    2. Dashboard: $dash_url"
     echo "    3. Add more agents: ./scripts/add-agent.sh"
     echo "    4. Reconfigure OpenClaw: openclaw onboard"
-    if [[ "$MESSAGING_PLATFORM" == "discord" ]]; then
+    if [[ "$MESSAGING_PLATFORM" == "discord" && -n "${DISCORD_OWNER_ID:-}" ]]; then
         echo
-        echo -e "  ${YELLOW}Discord pairing:${RESET}"
-        echo "    The first time you DM the bot, it will show a pairing code."
-        echo "    Approve it on this server with:"
-        echo "      openclaw pairing approve discord <CODE>"
+        echo "  Discord owner (${DISCORD_OWNER_ID}) is pre-authorized — no pairing needed."
+        echo "  Additional users can DM the bot and you approve with:"
+        echo "    openclaw pairing approve discord <CODE>"
     fi
     echo
 }

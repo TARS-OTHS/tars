@@ -5,5 +5,8 @@
   "description": "TARS Memory API plugin — native agent tools for persistent memory",
   "openclaw": {
     "extensions": ["./index.ts"]
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
   }
 }
