@@ -752,7 +752,7 @@ setup_tailscale() {
 
     # Connect to Tailscale
     print_info "Connecting to Tailscale..."
-    tailscale up --authkey="$ts_key" --hostname="tars-$(echo "$AGENT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' || echo 'server')" 2>/dev/null
+    tailscale up --authkey="$ts_key" --hostname="tars-$(hostname -s | tr '[:upper:]' '[:lower:]')" 2>/dev/null
 
     # Get Tailscale IP
     sleep 2
