@@ -1,25 +1,28 @@
-# TARS User Management Specification
+# TARS Team Specification
 
 ## Principles
 
-1. **Agents know who they're talking to.** Every message comes with user context — name, role, preferences, contact details.
+1. **Everyone knows the team.** All agents have access to the full roster — humans and agents — including roles, responsibilities, and how to reach each other.
 2. **Simple access levels.** Owner and admin only to start. Fine-grained permissions later if needed.
-3. **User profiles are agent-readable.** Stored as structured data that gets injected into agent context.
-4. **One source of truth.** User registry lives in one place, referenced by all agents and config.
+3. **One source of truth.** Team registry lives in one file, referenced by all agents and all config.
 
 ---
 
-## User Registry
+## Team Registry
 
-A single file at `$TARS_HOME/config/users.json`:
+A single file at `$TARS_HOME/config/team.json` containing both humans and agents:
 
 ```json
 {
-  "users": [
+  "humans": [
     {
       "id": "peter",
       "name": "Peter",
-      "level": "owner",
+      "type": "human",
+      "access": "owner",
+      "role": "Founder & CEO",
+      "responsibilities": ["Strategy", "Operations", "Product decisions", "Finance oversight"],
+      "context": "Based in Portugal. Manages all operations. Final decision-maker.",
       "contact": {
         "email": "peter@example.com",
         "phone": "+351...",
@@ -32,13 +35,16 @@ A single file at `$TARS_HOME/config/users.json`:
         "timezone": "UTC+7",
         "language": "en",
         "notify_via": "discord"
-      },
-      "notes": "Founder. Based in Portugal. Manages all operations."
+      }
     },
     {
       "id": "alice",
       "name": "Alice",
-      "level": "admin",
+      "type": "human",
+      "access": "admin",
+      "role": "Sourcing Lead",
+      "responsibilities": ["Supplier discovery", "Price negotiation", "Sample management", "Quality control"],
+      "context": "Based in Shenzhen. 5 years sourcing experience. Speaks Mandarin and English.",
       "contact": {
         "email": "alice@example.com",
         "phone": null,
@@ -51,23 +57,58 @@ A single file at `$TARS_HOME/config/users.json`:
         "timezone": "UTC+8",
         "language": "en",
         "notify_via": "wechat"
-      },
-      "notes": "Sourcing lead. Based in Shenzhen."
+      }
+    }
+  ],
+  "agents": [
+    {
+      "id": "tars",
+      "name": "T.A.R.S",
+      "type": "agent",
+      "role": "Coordinator",
+      "domain": "Central operations — task routing, delegation, reporting",
+      "model": "anthropic/claude-sonnet-4-6",
+      "channel": "#general",
+      "capabilities": ["web search", "memory", "exec", "browser", "cron", "sub-agents"]
+    },
+    {
+      "id": "sourcing",
+      "name": "Sourcing Agent",
+      "type": "agent",
+      "role": "Specialist",
+      "domain": "Product research, supplier discovery, pricing analysis",
+      "model": "anthropic/claude-sonnet-4-6",
+      "channel": "#sourcing",
+      "capabilities": ["web search", "memory", "browser"]
     }
   ]
 }
 ```
 
-### Fields
+### Human Fields
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `id` | yes | Unique identifier, used in config references |
-| `name` | yes | Display name agents use when addressing the user |
-| `level` | yes | `owner` or `admin` |
+| `name` | yes | Display name agents use when addressing the person |
+| `access` | yes | System access level: `owner` or `admin` |
+| `role` | yes | Job title or function (e.g. "Sourcing Lead", "Founder & CEO") |
+| `responsibilities` | yes | List of what this person owns — agents use this to know who to involve |
+| `context` | no | Free text — location, languages, experience, anything agents should know |
 | `contact` | yes | All known communication channels (null if not available) |
 | `preferences` | no | Timezone, language, preferred notification channel |
-| `notes` | no | Free text context for agents — role, location, responsibilities |
+
+### Agent Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | yes | Agent ID matching OpenClaw config |
+| `name` | yes | Display name |
+| `role` | yes | `Coordinator`, `Specialist`, or `Assistant` |
+| `domain` | yes | What this agent is expert in |
+| `model` | yes | LLM model ID |
+| `channel` | no | Primary Discord channel (null if no direct human access) |
+| `capabilities` | yes | List of tool categories this agent has access to |
 
 ---
 
@@ -103,32 +144,39 @@ Starting with owner + admin keeps it simple. Add the user level when there's a r
 
 ### Discord → User Resolution
 
-OpenClaw provides the Discord user ID with every message. TARS resolves it against the user registry:
+OpenClaw provides the Discord user ID with every message. TARS resolves it against the team registry:
 
 ```
 Discord message from 341650642709905408
-  → lookup users.json
+  → lookup team.json
   → inject into agent context:
 
     <user-context>
     Name: Peter
-    Level: owner
+    Access: owner
+    Role: Founder & CEO
+    Responsibilities: Strategy, Operations, Product decisions, Finance oversight
     Timezone: UTC+7
-    Notes: Founder. Based in Portugal. Manages all operations.
+    Context: Based in Portugal. Manages all operations. Final decision-maker.
     </user-context>
+
+    <team>
+    Humans: Peter (owner, CEO), Alice (admin, Sourcing Lead)
+    Agents: T.A.R.S (coordinator), Sourcing Agent (specialist)
+    </team>
 ```
 
 This happens in the `before_prompt_build` hook — before the agent sees the message.
 
 ### Implementation
 
-A lightweight OpenClaw plugin (`tars-users`) that:
-1. Reads `config/users.json` at startup
+A lightweight OpenClaw plugin (`tars-team`) that:
+1. Reads `config/team.json` at startup
 2. On `before_prompt_build`, looks up the sender's Discord ID
-3. Injects user context into the system prompt
+3. Injects user context + team roster summary into the system prompt
 4. Rejects messages from unknown Discord IDs (unless `allowUnknown: true`)
 
-This gives agents natural awareness: "Peter is asking me this" vs "Alice is asking me this" — and they can adapt tone, detail level, and which contact method to use for follow-ups.
+Every agent sees: who is talking to me, what's their role, and who else is on the team (humans and agents). This gives agents natural awareness of the full organisation.
 
 ---
 
@@ -153,25 +201,26 @@ Each user's Discord ID goes into the OpenClaw allowlists automatically:
 }
 ```
 
-When a user is added to `users.json`, the setup script (or `add-user.sh`) syncs their Discord ID into the OpenClaw config.
+When a user is added to `team.json`, the config sync updates OpenClaw allowlists and restarts the gateway.
 
 ---
 
-## User Management Commands
+## User Management
 
-### Add a user
-```bash
-./scripts/add-user.sh
-```
-Interactive prompts for name, level, contact details. Updates `users.json` and syncs OpenClaw config.
+Users can only be added through two channels:
 
-### Or via T.A.R.S
+### 1. Setup wizard (initial install)
+The owner adds team members during first-time setup. The wizard prompts for each user's details and writes them to the registry.
+
+### 2. Owner tells T.A.R.S (post-install)
 ```
 "Add Alice as an admin. Her Discord ID is 987654321098765432,
 email alice@example.com, WeChat alice_wx, timezone UTC+8.
 She handles sourcing from Shenzhen."
 ```
-T.A.R.S updates the registry via exec + restarts the gateway.
+T.A.R.S updates the registry, syncs OpenClaw config, and restarts the gateway.
+
+**Only the owner can add team members.** T.A.R.S verifies the request comes from an owner-level user before making changes. No standalone scripts — team management is always mediated by the coordinator agent or the setup wizard.
 
 ---
 
@@ -207,11 +256,11 @@ T.A.R.S checks `notify_via` first, falls back to whatever contact method is avai
 
 ## Sync with OpenClaw
 
-When `users.json` changes, the following must sync:
+When `team.json` changes, the following must sync:
 
 1. `openclaw.json` → `channels.discord.allowFrom` (all Discord IDs)
 2. `openclaw.json` → `channels.discord.guilds.*.users` (all Discord IDs)
 3. `exec-approvals.json` → per-user exec policies if needed
 4. Gateway restart to pick up changes
 
-The `add-user.sh` script handles all of this. T.A.R.S can also trigger it via exec.
+T.A.R.S handles all of this when the owner requests a user change.
