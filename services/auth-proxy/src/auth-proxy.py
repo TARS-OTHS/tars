@@ -2451,6 +2451,25 @@ async def handle_proxy(request):
                 k: v for k, v in resp.headers.items()
                 if k.lower() not in {"transfer-encoding", "connection", "content-encoding"}
             }
+
+            # Strip injected credentials from Location headers on redirects
+            # to prevent leaking secrets (e.g. Trello key/token in query params)
+            if resp.status in (301, 302, 303, 307, 308):
+                location = resp_headers.get("Location") or resp_headers.get("location")
+                if location:
+                    _sensitive_params = {"key", "token", "api_key", "apikey", "access_token"}
+                    loc_parsed = urlparse(location)
+                    loc_qs = parse_qs(loc_parsed.query, keep_blank_values=True)
+                    if any(p in loc_qs for p in _sensitive_params):
+                        cleaned_qs = {k: v for k, v in loc_qs.items() if k not in _sensitive_params}
+                        cleaned_url = urlunparse(loc_parsed._replace(
+                            query=urlencode(cleaned_qs, doseq=True) if cleaned_qs else ""
+                        ))
+                        for hdr in ("Location", "location"):
+                            if hdr in resp_headers:
+                                resp_headers[hdr] = cleaned_url
+                        log.warning("SECURITY: Stripped credentials from redirect Location header")
+
             resp_body = await resp.read()
             elapsed = round((time.monotonic() - t0) * 1000)
             log.info("  <- %d (%d bytes, %dms)", resp.status, len(resp_body), elapsed)

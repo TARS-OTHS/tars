@@ -123,6 +123,14 @@ check_prerequisites() {
         fi
     fi
 
+    # Enable loginctl linger so user-level systemd services (gateway) persist
+    # across SSH session disconnects
+    if ! loginctl show-user "$(whoami)" 2>/dev/null | grep -q 'Linger=yes'; then
+        loginctl enable-linger "$(whoami)" 2>/dev/null && print_success "loginctl linger enabled" || print_warn "Could not enable linger — gateway may stop between SSH sessions"
+    else
+        print_success "loginctl linger already enabled"
+    fi
+
     print_success "Prerequisites OK"
 }
 
