@@ -4,6 +4,8 @@ services:
       context: ./services/auth-proxy
       network: host
     env_file: .env
+    environment:
+      - OPENCLAW_DIR=/root/.openclaw
     ports:
       - "${DOCKER_HOST_IP:-172.17.0.1}:${AUTH_PROXY_PORT:-9100}:9100"
     volumes:
@@ -11,6 +13,7 @@ services:
       - ${TARS_HOME:-.}/.config/age:${TARS_HOME:-.}/.config/age:ro
       - ${TARS_HOME:-.}/.secrets:${TARS_HOME:-.}/.secrets:ro
       - auth-proxy-logs:${TARS_HOME:-.}/logs
+      - /root/.openclaw:/root/.openclaw
     depends_on:
       memory-api:
         condition: service_healthy
