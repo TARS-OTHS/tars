@@ -130,6 +130,13 @@ if [[ -f "$MAIN_WORKSPACE/TOOLS.md" ]]; then
     cp "$MAIN_WORKSPACE/TOOLS.md" "$AGENT_WORKSPACE/TOOLS.md"
 fi
 
+# mcporter config — copy from main workspace so agent can reach MCP gateway
+if [[ -d "$MAIN_WORKSPACE/.mcporter" ]]; then
+    mkdir -p "$AGENT_WORKSPACE/.mcporter"
+    cp "$MAIN_WORKSPACE/.mcporter/mcporter.json" "$AGENT_WORKSPACE/.mcporter/mcporter.json"
+    info "mcporter config copied"
+fi
+
 # Generate initial MEMORY_CONTEXT.md if regen script exists
 if [[ -f "$TARS_HOME/scripts/regen-memory-context.sh" ]]; then
     DOCKER_HOST_IP="${DOCKER_HOST_IP}" OC_WORKSPACE="${AGENT_WORKSPACE}" \

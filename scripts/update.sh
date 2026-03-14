@@ -137,6 +137,7 @@ DOCKER_HOST_IP=$(docker network inspect bridge --format='{{range .IPAM.Config}}{
 wait_healthy "http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}/ops/health" "auth-proxy" 30
 wait_healthy "http://${DOCKER_HOST_IP}:${MEMORY_API_PORT:-8897}/status" "memory-api" 30
 wait_healthy "http://${DOCKER_HOST_IP}:${EMBEDDING_PORT:-8896}/health" "embedding-service" 60
+wait_healthy "http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT:-12008}/" "mcp-gateway" 60
 
 # --- 7. Regenerate memory context ---
 if [[ -x "$TARS_HOME/scripts/regen-memory-context.sh" ]]; then

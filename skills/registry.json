@@ -170,6 +170,17 @@
       "default": false
     },
     {
+      "id": "mcporter",
+      "name": "MCPorter",
+      "category": "system",
+      "description": "List, configure, and call MCP servers/tools via the MCP gateway.",
+      "dependencies": {
+        "api_keys": [],
+        "system": ["mcporter"]
+      },
+      "default": true
+    },
+    {
       "id": "agent-management",
       "name": "Agent Management",
       "category": "system",

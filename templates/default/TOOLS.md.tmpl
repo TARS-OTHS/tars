@@ -20,6 +20,23 @@ curl -s -X POST http://${DOCKER_HOST_IP}:${MEMORY_API_PORT}/memory/session-state
   -d '{"agent": "${AGENT_ID}", "task_summary": "what we did", "status": "completed", "context": "key details"}'
 ```
 
+## MCP Gateway (MetaMCP)
+
+MCP tools are available via the `mcporter` CLI. The gateway aggregates all MCP servers behind one endpoint.
+
+```bash
+# List all available MCP tools
+mcporter list
+
+# Call a tool
+mcporter call <server>.<tool> --arg value
+
+# Example: search Gmail
+mcporter call google-workspace.gmail_search --query "invoices"
+```
+
+mcporter is pre-configured to connect to the gateway at http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT}.
+
 ## Auth Proxy (port ${AUTH_PROXY_PORT})
 
 All API access through http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT}.
@@ -38,4 +55,4 @@ https_proxy=http://${DOCKER_HOST_IP}:${WEB_PROXY_PORT} curl https://example.com
 ```
 
 ## Runtime
-- Python 3, Node 20, curl, jq, git
+- Python 3, Node 20, curl, jq, git, mcporter

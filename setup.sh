@@ -931,6 +931,87 @@ collect_agent_identity() {
 }
 
 # ============================================================
+# MCP GATEWAY HELPERS
+# ============================================================
+
+configure_mcp_google() {
+    # Configure Google Workspace MCP server in MetaMCP via its API
+    local gateway_url="http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT:-12008}"
+
+    # Resolve Google credentials from the vault
+    local google_creds
+    google_creds=$(echo "$vault_json" | jq -r '.["secrets/google-mcp-credentials.json"] // empty')
+    if [[ -z "$google_creds" ]]; then
+        print_warn "Google credentials not found in vault — skipping MCP Google setup"
+        return
+    fi
+
+    local g_client_id g_client_secret g_refresh_token
+    g_client_id=$(echo "$google_creds" | jq -r '.client_id')
+    g_client_secret=$(echo "$google_creds" | jq -r '.client_secret')
+    g_refresh_token=$(echo "$google_creds" | jq -r '.refresh_token // empty')
+
+    # Create the Google MCP server in MetaMCP
+    # MetaMCP API: POST /api/mcp-servers to add a server
+    local server_payload
+    server_payload=$(jq -n \
+        --arg name "google-workspace" \
+        --arg cmd "npx" \
+        --arg client_id "$g_client_id" \
+        --arg client_secret "$g_client_secret" \
+        --arg refresh_token "$g_refresh_token" \
+        '{
+            name: $name,
+            type: "STDIO",
+            command: $cmd,
+            args: ["-y", "@anthropic/mcp-google-workspace"],
+            env: {
+                GOOGLE_CLIENT_ID: $client_id,
+                GOOGLE_CLIENT_SECRET: $client_secret,
+                GOOGLE_REFRESH_TOKEN: $refresh_token
+            }
+        }')
+
+    local http_code
+    http_code=$(curl -sf -o /dev/null -w "%{http_code}" \
+        -X POST "${gateway_url}/api/mcp-servers" \
+        -H "Content-Type: application/json" \
+        -d "$server_payload" 2>/dev/null || echo "000")
+
+    if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
+        print_success "Google Workspace MCP server configured in gateway"
+    else
+        print_warn "MCP gateway returned HTTP $http_code — configure Google manually via ${gateway_url}"
+    fi
+
+    if [[ -z "$g_refresh_token" ]]; then
+        echo
+        print_warn "Google refresh token not yet set."
+        print_info "Run: ${TARS_HOME}/scripts/google-oauth.sh"
+        print_info "Then update the MCP server config with the refresh token."
+    fi
+}
+
+write_mcporter_config() {
+    local workspace="$1"
+    # Write mcporter config pointing to the MCP gateway
+    # This gets copied into agent sandboxes so mcporter knows where the gateway is
+    local mcporter_dir="${workspace}/.mcporter"
+    mkdir -p "$mcporter_dir"
+    cat > "${mcporter_dir}/mcporter.json" << MCPEOF
+{
+  "servers": {
+    "tars-gateway": {
+      "transport": "http",
+      "url": "http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT:-12008}/metamcp/default/mcp"
+    }
+  }
+}
+MCPEOF
+    print_success "mcporter config written to ${workspace}/.mcporter/"
+}
+
+# ============================================================
 # SECTION 5: OPTIONAL INTEGRATIONS
 # ============================================================
 # These are TARS-specific service integrations that extend
@@ -952,15 +1033,56 @@ collect_integrations() {
     fi
 
     echo
-    echo "  Google OAuth (Calendar, Gmail, Drive):"
-    echo "    1. Go to https://console.cloud.google.com → APIs & Services → Credentials"
-    echo "    2. Create OAuth 2.0 Client ID (Desktop app)"
-    echo "    3. Enable Calendar API, Gmail API, Drive API"
+    echo "  Google Workspace MCP (Calendar, Gmail, Drive, Sheets, Docs):"
+    echo "    1. Go to https://console.cloud.google.com → Create a new project"
+    echo "    2. APIs & Services → Enable: Gmail, Calendar, Drive, Sheets, Docs APIs"
+    echo "    3. APIs & Services → Credentials → Create OAuth 2.0 Client ID (Desktop app)"
+    echo "    4. Download the credentials JSON file"
     echo
-    GOOGLE_CLIENT_ID=$(ask "Google client ID (optional)" "")
+    GOOGLE_CLIENT_ID=$(ask "Google OAuth client ID (optional)" "")
     if [[ -n "${GOOGLE_CLIENT_ID:-}" ]]; then
         GOOGLE_CLIENT_SECRET=$(ask_secret "Google client secret")
-        print_success "Google OAuth: enabled"
+        echo
+        echo "  Now we need a refresh token via Google consent flow."
+        local do_oauth
+        do_oauth=$(ask_yn "Run OAuth consent flow now? (requires browser access)" "y")
+        if [[ "$do_oauth" =~ ^[Yy] ]]; then
+            # Run inline OAuth consent flow
+            local _scopes="https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/documents"
+            local _redirect="urn:ietf:wg:oauth:2.0:oob"
+            local _auth_url="https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${_redirect}&response_type=code&scope=$(echo "$_scopes" | sed 's/ /%20/g')&access_type=offline&prompt=consent"
+            echo
+            echo "  Open this URL in your browser:"
+            echo
+            echo -e "  ${BLUE}${_auth_url}${RESET}"
+            echo
+            local _auth_code
+            read -r -p "  Paste the authorisation code: " _auth_code
+            if [[ -n "$_auth_code" ]]; then
+                local _token_resp
+                _token_resp=$(curl -sf -X POST "https://oauth2.googleapis.com/token" \
+                    -d "code=${_auth_code}" \
+                    -d "client_id=${GOOGLE_CLIENT_ID}" \
+                    -d "client_secret=${GOOGLE_CLIENT_SECRET}" \
+                    -d "redirect_uri=${_redirect}" \
+                    -d "grant_type=authorization_code" 2>/dev/null || echo '{}')
+                GOOGLE_REFRESH_TOKEN=$(echo "$_token_resp" | jq -r '.refresh_token // empty')
+                local _oauth_err=$(echo "$_token_resp" | jq -r '.error // empty')
+                if [[ -n "$_oauth_err" ]]; then
+                    print_warn "OAuth error: $_oauth_err"
+                    print_info "You can retry later with: ${TARS_HOME:-/opt/tars}/scripts/google-oauth.sh"
+                    GOOGLE_REFRESH_TOKEN=""
+                elif [[ -n "$GOOGLE_REFRESH_TOKEN" ]]; then
+                    print_success "Google OAuth: fully configured"
+                else
+                    print_warn "No refresh token received — retry with: ${TARS_HOME:-/opt/tars}/scripts/google-oauth.sh"
+                fi
+            fi
+        else
+            GOOGLE_REFRESH_TOKEN=""
+            print_info "Run later: ${TARS_HOME:-/opt/tars}/scripts/google-oauth.sh"
+        fi
+        [[ -z "${GOOGLE_REFRESH_TOKEN:-}" ]] && print_success "Google MCP: credentials saved — complete OAuth later"
     fi
 }
 
@@ -996,6 +1118,7 @@ EMBEDDING_PORT=8896
 WEB_PROXY_PORT=8899
 DASHBOARD_PORT=8765
 DASHBOARD_API_PORT=8766
+MCP_GATEWAY_PORT=12008
 
 # OpenClaw gateway (manages Claude auth, messaging, model selection)
 CLAUDE_AUTH_METHOD=${CLAUDE_AUTH_METHOD}
@@ -1039,7 +1162,13 @@ ENVEOF
     if [[ -n "${TRELLO_KEY:-}" && -n "${TRELLO_TOKEN:-}" ]]; then
         vault_json=$(echo "$vault_json" | jq --arg k "$TRELLO_KEY" --arg t "$TRELLO_TOKEN" '. + {"secrets/trello-credentials.json": {"key": $k, "token": $t}}')
     fi
-    [[ -n "${GOOGLE_CLIENT_ID:-}" ]] && vault_json=$(echo "$vault_json" | jq --arg id "$GOOGLE_CLIENT_ID" --arg sec "${GOOGLE_CLIENT_SECRET:-}" '. + {"secrets/google-token.json": {"client_id": $id, "client_secret": $sec}}')
+    if [[ -n "${GOOGLE_CLIENT_ID:-}" ]]; then
+        vault_json=$(echo "$vault_json" | jq \
+            --arg id "$GOOGLE_CLIENT_ID" \
+            --arg sec "${GOOGLE_CLIENT_SECRET:-}" \
+            --arg ref "${GOOGLE_REFRESH_TOKEN:-}" \
+            '. + {"secrets/google-mcp-credentials.json": {"client_id": $id, "client_secret": $sec, "refresh_token": $ref}}')
+    fi
 
     echo "$vault_json" | age -r "$age_pubkey" -o "$TARS_HOME/.secrets-vault/secrets.age"
     chmod 600 "$TARS_HOME/.secrets-vault/secrets.age"
@@ -1169,6 +1298,26 @@ USEREOF
     wait_for_service "http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}/ops/health" "auth-proxy" 90
     wait_for_service "http://${DOCKER_HOST_IP}:${MEMORY_API_PORT:-8897}/status" "memory-api" 90
     wait_for_service "http://${DOCKER_HOST_IP}:${EMBEDDING_PORT:-8896}/health" "embedding-service" 120
+    wait_for_service "http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT:-12008}/" "mcp-gateway" 60
+
+    # Enable mcporter skill for MCP server access
+    print_header "Enabling MCP Skills"
+    if command -v openclaw &>/dev/null; then
+        openclaw skills enable mcporter 2>/dev/null && print_success "mcporter skill enabled" || print_warn "mcporter skill enable failed — enable manually: openclaw skills enable mcporter"
+    else
+        print_warn "openclaw CLI not found — enable mcporter skill manually after install"
+    fi
+
+    # Configure MCP gateway with Google Workspace if credentials provided
+    if [[ -n "${GOOGLE_CLIENT_ID:-}" ]]; then
+        print_header "Configuring MCP Gateway"
+        wait_for_service "http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT:-12008}/" "mcp-gateway" 60
+
+        configure_mcp_google
+    fi
+
+    # Write mcporter config to agent workspace so sandbox agents can reach the gateway
+    write_mcporter_config "$oc_workspace"
 
     print_header "Done!"
     echo
@@ -1247,7 +1396,7 @@ Be direct, concise, and helpful. Ask clarifying questions when needed. Proactive
 ## Capabilities
 - Memory: persistent across conversations
 - Web search: $([ -n "${TAVILY_API_KEY:-}" ] && echo "enabled (Tavily)" || echo "not configured")
-- Google Workspace: $([ -n "${GOOGLE_CLIENT_ID:-}" ] && echo "enabled (Calendar, Gmail, Drive)" || echo "not configured")
+- Google Workspace: $([ -n "${GOOGLE_CLIENT_ID:-}" ] && echo "enabled via MCP (Calendar, Gmail, Drive, Sheets, Docs)" || echo "not configured")
 - Notion: $([ -n "${NOTION_TOKEN:-}" ] && echo "enabled" || echo "not configured")
 - Trello: $([ -n "${TRELLO_KEY:-}" ] && echo "enabled" || echo "not configured")
 SOULEOF
@@ -1292,7 +1441,6 @@ All services run in Docker on this host. Internal access via Docker bridge IP \`
 | \`/openai/\` | api.openai.com | Bearer token |
 | \`/notion/\` | api.notion.com | Bearer + Notion-Version |
 | \`/cloudflare/\` | api.cloudflare.com | Bearer token |
-| \`/google/\` | googleapis.com | OAuth2 Bearer |
 | \`/serpapi/\` | serpapi.com | api_key query param |
 
 Only routes with credentials in the vault will work. Check: \`GET /ops/secret-list\`
@@ -1356,9 +1504,20 @@ $([ -n "${NOTION_TOKEN:-}" ] && echo "### Notion
 - Integration token configured
 - Read/write Notion pages and databases
 ")
-$([ -n "${GOOGLE_CLIENT_ID:-}" ] && echo "### Google Workspace
-- OAuth configured (Calendar, Gmail, Drive)
-")
+## MCP Gateway (MetaMCP)
+
+- **URL:** \`http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT:-12008}\`
+- **Health:** \`GET /\`
+- MCP server aggregator — all MCP tools accessible through one endpoint
+- Agents access MCP tools via the \`mcporter\` CLI (pre-installed in sandbox)
+- **Usage:** \`mcporter list\` to discover tools, \`mcporter call <server>.<tool> --arg value\` to invoke
+
+### Configured MCP Servers
+$([ -n "${GOOGLE_CLIENT_ID:-}" ] && echo "- **Google Workspace** — Gmail, Calendar, Drive, Sheets, Docs")
+
+### mcporter Config
+mcporter is pre-configured to connect to the MCP gateway. Config at \`~/.mcporter/mcporter.json\`.
+
 
 ## OpenClaw Gateway
 

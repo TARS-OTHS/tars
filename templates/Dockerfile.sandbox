@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3 -m pip install --break-system-packages --no-cache-dir \
     sympy mpmath
 
+# MCP tooling — mcporter CLI for calling MCP servers via the gateway
+RUN npm install -g mcporter
+
 # Ensure pip installs to user-writable location in sandbox
 ENV PYTHONUSERBASE=/workspace/.local
 ENV PATH="/workspace/.local/bin:${PATH}"

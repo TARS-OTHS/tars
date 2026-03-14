@@ -160,12 +160,53 @@ services:
     networks:
       - tars
 
+  # --- MCP Gateway (MetaMCP) ---
+  mcp-gateway:
+    image: ghcr.io/metatool-ai/metamcp:latest
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://metamcp:metamcp@mcp-db:5432/metamcp
+      - APP_URL=http://localhost:${MCP_GATEWAY_PORT:-12008}
+      - NODE_ENV=production
+      - LOG_LEVEL=errors-only
+    ports:
+      - "${DOCKER_HOST_IP:-172.17.0.1}:${MCP_GATEWAY_PORT:-12008}:12008"
+    depends_on:
+      mcp-db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -q --spider http://localhost:12008/ || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - tars
+
+  mcp-db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=metamcp
+      - POSTGRES_PASSWORD=metamcp
+      - POSTGRES_DB=metamcp
+    volumes:
+      - mcp-db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metamcp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tars
+
 volumes:
   auth-proxy-logs:
   memory-data:
   embedding-models:
   credential-proxy-logs:
   cron-logs:
+  mcp-db-data:
 
 networks:
   tars:
