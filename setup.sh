@@ -1068,18 +1068,22 @@ class H(http.server.BaseHTTPRequestHandler):
         p = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         code = p.get('code', [None])[0]
         err = p.get('error', [None])[0]
-        self.send_response(200); self.send_header('Content-Type','text/html'); self.end_headers()
         if err:
+            self.send_response(200); self.send_header('Content-Type','text/html'); self.end_headers()
             self.wfile.write(f'<h1>Error: {err}</h1>'.encode())
             open('${_code_file}','w').write(f'ERROR:{err}')
+            threading.Thread(target=self.server.shutdown).start()
         elif code:
+            self.send_response(200); self.send_header('Content-Type','text/html'); self.end_headers()
             self.wfile.write(b'<h1>Authorised!</h1><p>Close this tab.</p>')
             open('${_code_file}','w').write(code)
-        threading.Thread(target=self.server.shutdown).start()
+            threading.Thread(target=self.server.shutdown).start()
+        else:
+            self.send_response(404); self.end_headers()
     def log_message(self, *a): pass
 s = http.server.HTTPServer(('127.0.0.1', ${_oauth_port}), H)
 print('  Waiting for Google callback on port ${_oauth_port}...')
-s.handle_request(); s.server_close()
+s.serve_forever(); s.server_close()
 " &
             local _py_pid=$!
             print_info "Waiting for authorisation..."

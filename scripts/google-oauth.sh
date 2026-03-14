@@ -69,8 +69,9 @@ AUTH_CODE_FILE=$(mktemp)
 trap "rm -f $AUTH_CODE_FILE" EXIT
 
 # Python HTTP server that captures the auth code from the redirect
+# Uses serve_forever() so SSH tunnel probes don't consume the handler
 python3 -c "
-import http.server, urllib.parse, sys
+import http.server, urllib.parse, threading
 
 class OAuthHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -84,6 +85,7 @@ class OAuthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(f'<h1>Error: {error}</h1><p>You can close this tab.</p>'.encode())
             with open('$AUTH_CODE_FILE', 'w') as f:
                 f.write(f'ERROR:{error}')
+            threading.Thread(target=self.server.shutdown).start()
         elif code:
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
@@ -91,20 +93,18 @@ class OAuthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b'<h1>Authorised!</h1><p>You can close this tab. Return to the terminal.</p>')
             with open('$AUTH_CODE_FILE', 'w') as f:
                 f.write(code)
+            threading.Thread(target=self.server.shutdown).start()
         else:
-            self.send_response(400)
+            # Ignore non-OAuth requests (favicon, tunnel probes, etc.)
+            self.send_response(404)
             self.end_headers()
-            return
-        # Shutdown after handling
-        import threading
-        threading.Thread(target=self.server.shutdown).start()
 
     def log_message(self, format, *args):
         pass  # Suppress HTTP logs
 
 server = http.server.HTTPServer(('127.0.0.1', ${OAUTH_PORT}), OAuthHandler)
 print('Waiting for Google authorisation callback on port ${OAUTH_PORT}...')
-server.handle_request()
+server.serve_forever()
 server.server_close()
 " &
 PYTHON_PID=$!
