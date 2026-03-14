@@ -1241,7 +1241,11 @@ All services run in Docker on this host. Internal access via Docker bridge IP \`
 ### Auth Proxy
 - **URL:** \`http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}\`
 - **Health:** \`GET /ops/health\`
-- Handles authenticated requests to external services
+- **Routes:** \`GET /\` to list all available routes
+- Reverse proxy that injects API credentials from the encrypted vault
+- **All external API calls should go through the auth proxy** — never use raw API keys
+- Credentials are stored in \`\${TARS_HOME}/.secrets-vault/secrets.age\` (NOT individual .age files)
+- Usage: call \`http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}/{service}/{api-path}\` — the proxy strips the prefix, injects auth, and forwards to the upstream API
 
 ### Web Proxy
 - **URL:** \`http://${DOCKER_HOST_IP}:${WEB_PROXY_PORT:-8899}\`
@@ -1269,12 +1273,14 @@ All services run in Docker on this host. Internal access via Docker bridge IP \`
 ## External Integrations
 
 $([ -n "${TAVILY_API_KEY:-}" ] && echo "### Tavily (Web Search)
-- API key configured
-- Use for real-time web search, research, fact-checking
+- **Via auth proxy:** \`POST http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}/tavily/search\`
+- Body: \`{\"query\": \"...\", \"max_results\": 5}\`
+- Auth is injected automatically — do NOT include api_key in requests
 ")
 $([ -n "${TRELLO_KEY:-}" ] && echo "### Trello (Task Management)
-- API key + token configured
-- Create boards, lists, cards; manage project tasks
+- **Via auth proxy:** \`http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}/trello/1/{endpoint}\`
+- Example: \`GET /trello/1/members/me/boards\` — note the \`/1/\` API version prefix is required
+- Auth (key + token) is injected as query params automatically
 ")
 $([ -n "${NOTION_TOKEN:-}" ] && echo "### Notion
 - Integration token configured
@@ -1304,8 +1310,9 @@ OpenClaw provides a headless browser for web interaction:
 
 ## Secrets
 
-All secrets are encrypted with age in \`${TARS_HOME}/.secrets/\`.
-Decrypted at runtime by vault resolver script. Never store plaintext secrets.
+- **Auth proxy vault:** \`\${TARS_HOME}/.secrets-vault/secrets.age\` — contains all integration API keys (Tavily, Trello, etc.). Decrypted by the auth proxy at startup.
+- **OpenClaw vault:** \`\${TARS_HOME}/.secrets/*.age\` — contains core secrets (anthropic, discord, gateway). Used by the vault-resolver script.
+- Never store plaintext secrets. Use \`POST /ops/vault-add\` on the auth proxy to add new secrets.
 TOOLSEOF
 }
 
