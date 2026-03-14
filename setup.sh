@@ -1099,8 +1099,10 @@ USEREOF
     # Install MEMORY_CONTEXT.md cron job
     chmod +x "$TARS_HOME/scripts/regen-memory-context.sh" 2>/dev/null || true
     # Add cron if not already present
-    if ! crontab -l 2>/dev/null | grep -q "regen-memory-context"; then
-        (crontab -l 2>/dev/null; echo "*/30 * * * * DOCKER_HOST_IP=${DOCKER_HOST_IP} OC_WORKSPACE=${oc_workspace} ${TARS_HOME}/scripts/regen-memory-context.sh >> /var/log/tars-context-regen.log 2>&1") | crontab -
+    local existing_cron
+    existing_cron=$(crontab -l 2>/dev/null || true)
+    if ! echo "$existing_cron" | grep -q "regen-memory-context"; then
+        (echo "$existing_cron"; echo "*/30 * * * * DOCKER_HOST_IP=${DOCKER_HOST_IP} OC_WORKSPACE=${oc_workspace} ${TARS_HOME}/scripts/regen-memory-context.sh >> /var/log/tars-context-regen.log 2>&1") | crontab -
         print_success "MEMORY_CONTEXT.md cron job installed (every 30 min)"
     fi
     # Run once now to create initial context
