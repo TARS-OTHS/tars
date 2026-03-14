@@ -1087,6 +1087,9 @@ IDEOF
   "agents": []
 }
 TEAMEOF
+    # Also create at TARS_HOME so agents can find it at /opt/tars/config/team.json
+    mkdir -p "${TARS_HOME}/config"
+    cp /root/config/team.json "${TARS_HOME}/config/team.json"
     print_success "Team config created"
 
     # Generate TOOLS.md with actual service URLs and configured integrations
