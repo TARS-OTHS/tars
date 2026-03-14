@@ -1151,6 +1151,7 @@ WEB_PROXY_PORT=8899
 DASHBOARD_PORT=8765
 DASHBOARD_API_PORT=8766
 MCP_GATEWAY_PORT=12008
+MCP_AUTH_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
 # OpenClaw gateway (manages Claude auth, messaging, model selection)
 CLAUDE_AUTH_METHOD=${CLAUDE_AUTH_METHOD}

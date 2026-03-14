@@ -171,6 +171,7 @@ services:
       - POSTGRES_USER=metamcp
       - POSTGRES_PASSWORD=metamcp
       - POSTGRES_DB=metamcp
+      - BETTER_AUTH_SECRET=${MCP_AUTH_SECRET:-changeme-generate-a-real-secret}
       - APP_URL=http://localhost:${MCP_GATEWAY_PORT:-12008}
       - NODE_ENV=production
       - LOG_LEVEL=errors-only
