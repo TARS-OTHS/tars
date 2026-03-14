@@ -1277,18 +1277,51 @@ All services run in Docker on this host. Internal access via Docker bridge IP \`
 ### Auth Proxy
 - **URL:** \`http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}\`
 - **Health:** \`GET /ops/health\`
-- **Routes:** \`GET /\` to list all available routes
+- **Routes index:** \`GET /\` — lists all available upstream routes and ops endpoints
 - Reverse proxy that injects API credentials from the encrypted vault
 - **All external API calls should go through the auth proxy** — never use raw API keys
-- Credentials are stored in \`\${TARS_HOME}/.secrets-vault/secrets.age\` (NOT individual .age files)
-- Usage: call \`http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}/{service}/{api-path}\` — the proxy strips the prefix, injects auth, and forwards to the upstream API
+- Usage: \`http://${DOCKER_HOST_IP}:${AUTH_PROXY_PORT:-9100}/{service}/{api-path}\` — strips prefix, injects auth, forwards to upstream
+
+#### Auth Proxy — Upstream Routes
+| Route prefix | Upstream | Auth method |
+|---|---|---|
+| \`/tavily/\` | api.tavily.com | Bearer token |
+| \`/trello/\` | api.trello.com | key+token query params |
+| \`/anthropic/\` | api.anthropic.com | x-api-key header |
+| \`/github/\` | api.github.com | Bearer token |
+| \`/openai/\` | api.openai.com | Bearer token |
+| \`/notion/\` | api.notion.com | Bearer + Notion-Version |
+| \`/cloudflare/\` | api.cloudflare.com | Bearer token |
+| \`/google/\` | googleapis.com | OAuth2 Bearer |
+| \`/serpapi/\` | serpapi.com | api_key query param |
+
+Only routes with credentials in the vault will work. Check: \`GET /ops/secret-list\`
+
+#### Auth Proxy — Key Ops Endpoints
+- \`GET /ops/health\` — System health overview
+- \`GET /ops/services\` — List managed services and status
+- \`GET /ops/containers\` — Docker containers with stats
+- \`GET /ops/logs?service=X&lines=50\` — Sanitized log tail
+- \`GET /ops/watchdog\` — Health check of all critical services
+- \`GET /ops/agents\` — List all agents
+- \`GET /ops/sys-crons\` — List managed system crons
+- \`POST /ops/sys-cron-add\` — Add system cron
+- \`POST /ops/sys-cron-remove\` — Remove system cron
+- \`GET /ops/secret-list\` — List secret names in vault
+- \`POST /ops/secret-set\` — Add/update vault secret (HITL-gated)
+- \`POST /ops/service-restart\` — Restart allowlisted service
+- \`POST /ops/auth-route-test\` — Test auth proxy route
+- Full list: \`GET /\`
 
 ### Web Proxy
 - **URL:** \`http://${DOCKER_HOST_IP}:${WEB_PROXY_PORT:-8899}\`
-- Fetch and parse web pages, bypass CORS restrictions
+- HTTP/HTTPS forward proxy (tinyproxy) for outbound web requests from sandbox
+- Use with \`--proxy\`: \`curl --proxy http://${DOCKER_HOST_IP}:${WEB_PROXY_PORT:-8899} https://example.com\`
+- Do NOT hit it directly (returns 403) — it's a proxy, not a web server
 
 ### Credential Proxy
-- Manages credential lifecycle for external service access
+- Internal-only forward proxy for sandbox containers
+- Not directly callable by main agent — used automatically by sandboxed containers
 
 ### Dashboard
 - **UI:** port ${DASHBOARD_PORT:-8765}
@@ -1296,7 +1329,8 @@ All services run in Docker on this host. Internal access via Docker bridge IP \`
 - **Endpoints:** \`/send\`, \`/tasks\`, \`/tasks/add\`, \`/tasks/update\`, \`/ops-alerts\`, \`/system-stats\`, \`/memory-health\`
 - Send messages, manage tasks, view system health, ops alerts
 
-### Cron
+### Cron (tars-cron container)
+All crons run inside the \`tars-cron-1\` container. View with: \`docker exec tars-cron-1 crontab -l\`
 - Memory lifecycle: decay, archive, purge (every 6h)
 - Memory backup (every 6h)
 - Session state auto-capture (every 15min)
@@ -1346,9 +1380,14 @@ OpenClaw provides a headless browser for web interaction:
 
 ## Secrets
 
-- **Auth proxy vault:** \`\${TARS_HOME}/.secrets-vault/secrets.age\` — contains all integration API keys (Tavily, Trello, etc.). Decrypted by the auth proxy at startup.
-- **OpenClaw vault:** \`\${TARS_HOME}/.secrets/*.age\` — contains core secrets (anthropic, discord, gateway). Used by the vault-resolver script.
-- Never store plaintext secrets. Use \`POST /ops/vault-add\` on the auth proxy to add new secrets.
+- **Auth proxy vault:** \`\${TARS_HOME}/.secrets-vault/secrets.age\` — integration API keys (Tavily, Trello, etc.). Decrypted by auth proxy at startup.
+- **OpenClaw vault:** \`\${TARS_HOME}/.secrets/*.age\` — core secrets (anthropic, discord, gateway). Used by vault-resolver.
+- **Manage secrets:** \`GET /ops/secret-list\` to view, \`POST /ops/secret-set\` to add/update (HITL-gated)
+- Never store plaintext secrets.
+
+## Self-Update
+
+Run \`\${TARS_HOME}/scripts/update.sh\` to pull latest code, rebuild services, and restart. Must run on host, not inside sandbox.
 TOOLSEOF
 }
 
