@@ -97,6 +97,13 @@ if [[ "$NO_REBUILD" == false ]]; then
     else
         info "No service changes — skipping Docker rebuild"
     fi
+
+    # Rebuild sandbox image if Dockerfile.sandbox changed
+    if echo "$CHANGED_FILES" | grep -q 'Dockerfile.sandbox'; then
+        info "Rebuilding sandbox image..."
+        docker build -t tars-sandbox:base -f "$TARS_HOME/templates/Dockerfile.sandbox" "$TARS_HOME" 2>&1 | tail -5
+        ok "Sandbox image rebuilt"
+    fi
 fi
 
 # --- 5. Restart services ---

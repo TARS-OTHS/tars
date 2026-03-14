@@ -32,9 +32,13 @@ The wizard handles everything:
 - Asks about your use case and agent identity
 - Walks through messaging platform setup (Discord recommended)
 - Prompts for API keys you want to connect
-- Lets you pick skills
+- Lets you pick skills (some are bundled, others optional)
 - Generates all config files
 - Encrypts credentials into age vault
+- Installs plugin dependencies
+- Builds the agent sandbox image (`tars-sandbox:base`)
+- Builds and starts all Docker services
+- Configures sandboxing so agents run isolated from credentials and host
 
 ### What It Creates
 

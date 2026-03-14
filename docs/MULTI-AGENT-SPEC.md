@@ -191,22 +191,32 @@ These are suggestions, not a plan. Each gets created only when T.A.R.S hits a li
 
 ## Security & Access
 
+### Agent sandboxing
+
+All agents — coordinator and specialists — run in sandboxed Docker containers (`tars-sandbox:base`). This is enforced by `agents.defaults.sandbox.mode: "all"` in `openclaw.json` and applies automatically to every agent created via `add-agent.sh`.
+
+Sandbox constraints:
+- Read-only root, `cap_drop: ALL`, non-root user
+- Network forced through web proxy — no direct internet
+- No access to credentials, vault, or age keys
+- Own workspace volume only — cannot access other agents' workspaces
+- Resource limits: 2GB RAM, 2 CPUs
+
 ### Agent permissions
-- All agents access the auth proxy (shared credentials)
+- All agents access APIs through the auth proxy (credentials injected at network layer — agents never see raw keys)
 - All agents can read/write to their own memory scope
 - All agents can read shared memory
-- Exec permissions are per-agent (configurable)
-- Agents cannot access each other's workspaces directly
+- Exec permissions are per-agent (configurable in `exec-approvals.json`)
+- Agents cannot access each other's workspaces or the host filesystem
 
-### Human access levels (future)
+### Human access levels
 
 | Level | Access |
 |-------|--------|
-| **Owner** | All agents, all tools, exec, config changes |
+| **Owner** | All agents, all tools, exec auto-approved, config changes |
 | **Admin** | All agents, all tools, exec with approval |
-| **User** | Assigned agents only, no exec, no config |
 
-Start with owner-only. Add admin/user levels when multi-user becomes real.
+Start with owner-only. Add finer-grained levels when multi-user becomes real.
 
 ---
 

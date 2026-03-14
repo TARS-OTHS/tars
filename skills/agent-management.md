@@ -169,8 +169,11 @@ To change an agent's configuration after creation:
 
 ## Architecture Notes
 
+- **All agents are sandboxed.** Every agent runs in a `tars-sandbox:base` Docker container with `cap_drop: ALL`, read-only root, non-root user, and forced proxy routing. This is inherited from `agents.defaults.sandbox` in `openclaw.json` — new agents get sandboxed automatically.
 - All agents share the same gateway, auth proxy, memory API, and embedding service.
-- Each agent has its own workspace at `~/.openclaw/workspaces/<agent-id>/`.
+- Agents access APIs through the auth proxy — they never see raw credentials.
+- Each agent has its own workspace volume at `~/.openclaw/workspaces/<agent-id>/`.
+- Agents can install packages emergently (`pip install --user`, `npm install`) — packages persist in the workspace.
 - `requireMention: true` on the Discord guild means agents only respond when @mentioned — no token waste.
 - The main agent (T.A.R.S) has workspace at `~/.openclaw/workspace/` (legacy path from setup).
 - New agents get workspace at `~/.openclaw/workspaces/<id>/`.
