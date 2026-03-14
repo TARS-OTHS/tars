@@ -1072,6 +1072,23 @@ ${AGENT_DESCRIPTION}
 IDEOF
     print_success "Agent identity written to OpenClaw workspace"
 
+    # Create team.json for tars-team plugin
+    mkdir -p /root/config
+    cat > /root/config/team.json << TEAMEOF
+{
+  "humans": [
+    {
+      "id": "$(echo "$OWNER_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')",
+      "name": "${OWNER_NAME}",
+      "role": "owner",
+      "discord": "${DISCORD_USER_ID:-}"
+    }
+  ],
+  "agents": []
+}
+TEAMEOF
+    print_success "Team config created"
+
     # Generate TOOLS.md with actual service URLs and configured integrations
     generate_tools_md > "$oc_workspace/TOOLS.md"
     print_success "Tools manifest written to OpenClaw workspace"
@@ -1109,12 +1126,26 @@ USEREOF
     DOCKER_HOST_IP="${DOCKER_HOST_IP}" OC_WORKSPACE="${oc_workspace}" "$TARS_HOME/scripts/regen-memory-context.sh" 2>/dev/null || true
 
     print_header "Installing Plugin Dependencies"
+    local _all_plugin_deps=()
     for plugin_dir in "$TARS_HOME"/plugins/*/; do
         if [[ -f "${plugin_dir}package.json" ]]; then
             echo "  Installing deps for $(basename "$plugin_dir")..."
             (cd "$plugin_dir" && npm install --omit=dev --silent 2>&1) || print_warn "Failed to install deps for $(basename "$plugin_dir")"
+            # Collect deps for global install (gateway resolves modules globally)
+            local _deps
+            _deps=$(jq -r '.dependencies // {} | keys[]' "${plugin_dir}package.json" 2>/dev/null || true)
+            for dep in $_deps; do
+                _all_plugin_deps+=("$dep")
+            done
         fi
     done
+    # Install plugin deps globally so the gateway can resolve them
+    if [[ ${#_all_plugin_deps[@]} -gt 0 ]]; then
+        local _unique_deps
+        _unique_deps=$(printf '%s\n' "${_all_plugin_deps[@]}" | sort -u | tr '\n' ' ')
+        echo "  Installing globally: $_unique_deps"
+        npm install -g $_unique_deps --silent 2>&1 || print_warn "Failed to install some plugin deps globally"
+    fi
     print_success "Plugin dependencies installed"
 
     print_header "Building Sandbox Image"
