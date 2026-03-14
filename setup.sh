@@ -1081,7 +1081,7 @@ IDEOF
       "id": "$(echo "$OWNER_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')",
       "name": "${OWNER_NAME}",
       "role": "owner",
-      "discord": "${DISCORD_USER_ID:-}"
+      "discord": "${DISCORD_OWNER_ID:-}"
     }
   ],
   "agents": []
