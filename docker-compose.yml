@@ -166,6 +166,11 @@ services:
     env_file: .env
     environment:
       - DATABASE_URL=postgresql://metamcp:metamcp@mcp-db:5432/metamcp
+      - POSTGRES_HOST=mcp-db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=metamcp
+      - POSTGRES_PASSWORD=metamcp
+      - POSTGRES_DB=metamcp
       - APP_URL=http://localhost:${MCP_GATEWAY_PORT:-12008}
       - NODE_ENV=production
       - LOG_LEVEL=errors-only
