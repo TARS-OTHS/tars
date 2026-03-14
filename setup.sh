@@ -1070,9 +1070,18 @@ USEREOF
     # Run once now to create initial context
     DOCKER_HOST_IP="${DOCKER_HOST_IP}" OC_WORKSPACE="${oc_workspace}" "$TARS_HOME/scripts/regen-memory-context.sh" 2>/dev/null || true
 
+    print_header "Installing Plugin Dependencies"
+    for plugin_dir in "$TARS_HOME"/plugins/*/; do
+        if [[ -f "${plugin_dir}package.json" ]]; then
+            echo "  Installing deps for $(basename "$plugin_dir")..."
+            (cd "$plugin_dir" && npm install --omit=dev --silent 2>&1) || print_warn "Failed to install deps for $(basename "$plugin_dir")"
+        fi
+    done
+    print_success "Plugin dependencies installed"
+
     print_header "Building Docker Images"
     echo "  This may take a few minutes on first run..."
-    docker compose build --network=host --parallel 2>&1 | grep -E 'Successfully|ERROR|error' || true
+    docker compose build --parallel 2>&1 | grep -E 'Successfully|ERROR|error' || true
     print_success "Docker images built"
 
     print_header "Starting Services"
