@@ -655,6 +655,34 @@ configure_openclaw() {
     "defaults": {
       "model": {
         "primary": "anthropic/claude-sonnet-4-6"
+      },
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "maxConcurrent": 4,
+      "subagents": { "maxConcurrent": 8 },
+      "sandbox": {
+        "mode": "all",
+        "workspaceAccess": "rw",
+        "sessionToolsVisibility": "all",
+        "scope": "agent",
+        "docker": {
+          "image": "tars-sandbox:base",
+          "readOnlyRoot": true,
+          "network": "bridge",
+          "user": "node",
+          "capDrop": ["ALL"],
+          "env": {
+            "PYTHONUSERBASE": "/workspace/.local",
+            "PATH": "/workspace/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "http_proxy": "http://${DOCKER_HOST_IP}:${WEB_PROXY_PORT:-8899}",
+            "https_proxy": "http://${DOCKER_HOST_IP}:${WEB_PROXY_PORT:-8899}",
+            "no_proxy": "${DOCKER_HOST_IP},localhost,127.0.0.1"
+          },
+          "memory": "2g",
+          "cpus": 2,
+          "extraHosts": ["host.docker.internal:${DOCKER_HOST_IP}"]
+        }
       }
     },
     "list": [
@@ -1078,6 +1106,11 @@ USEREOF
         fi
     done
     print_success "Plugin dependencies installed"
+
+    print_header "Building Sandbox Image"
+    echo "  Building agent sandbox (tars-sandbox:base)..."
+    docker build -t tars-sandbox:base -f "$TARS_HOME/templates/Dockerfile.sandbox" "$TARS_HOME" 2>&1 | grep -E 'Successfully|ERROR|error|DONE' || true
+    print_success "Sandbox image built"
 
     print_header "Building Docker Images"
     echo "  This may take a few minutes on first run..."
