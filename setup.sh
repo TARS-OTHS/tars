@@ -1047,18 +1047,50 @@ collect_integrations() {
         local do_oauth
         do_oauth=$(ask_yn "Run OAuth consent flow now? (requires browser access)" "y")
         if [[ "$do_oauth" =~ ^[Yy] ]]; then
-            # Run inline OAuth consent flow
+            # Run inline OAuth consent flow using localhost redirect
             local _scopes="https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/documents"
-            local _redirect="urn:ietf:wg:oauth:2.0:oob"
-            local _auth_url="https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${_redirect}&response_type=code&scope=$(echo "$_scopes" | sed 's/ /%20/g')&access_type=offline&prompt=consent"
+            local _oauth_port=8844
+            local _redirect="http://localhost:${_oauth_port}"
+            local _auth_url="https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${_redirect}'))")&response_type=code&scope=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${_scopes}'))")&access_type=offline&prompt=consent"
             echo
             echo "  Open this URL in your browser:"
+            echo "  (If remote, first tunnel: ssh -L ${_oauth_port}:localhost:${_oauth_port} <this-server>)"
             echo
             echo -e "  ${BLUE}${_auth_url}${RESET}"
             echo
+            # Start temp HTTP server to catch the redirect
+            local _code_file
+            _code_file=$(mktemp)
+            python3 -c "
+import http.server, urllib.parse, threading
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        p = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        code = p.get('code', [None])[0]
+        err = p.get('error', [None])[0]
+        self.send_response(200); self.send_header('Content-Type','text/html'); self.end_headers()
+        if err:
+            self.wfile.write(f'<h1>Error: {err}</h1>'.encode())
+            open('${_code_file}','w').write(f'ERROR:{err}')
+        elif code:
+            self.wfile.write(b'<h1>Authorised!</h1><p>Close this tab.</p>')
+            open('${_code_file}','w').write(code)
+        threading.Thread(target=self.server.shutdown).start()
+    def log_message(self, *a): pass
+s = http.server.HTTPServer(('127.0.0.1', ${_oauth_port}), H)
+print('  Waiting for Google callback on port ${_oauth_port}...')
+s.handle_request(); s.server_close()
+" &
+            local _py_pid=$!
+            print_info "Waiting for authorisation..."
+            wait $_py_pid 2>/dev/null || true
             local _auth_code
-            read -r -p "  Paste the authorisation code: " _auth_code
-            if [[ -n "$_auth_code" ]]; then
+            _auth_code=$(cat "$_code_file" 2>/dev/null || echo "")
+            rm -f "$_code_file"
+            if [[ "$_auth_code" == ERROR:* ]]; then
+                print_warn "OAuth error: ${_auth_code#ERROR:}"
+                GOOGLE_REFRESH_TOKEN=""
+            elif [[ -n "$_auth_code" ]]; then
                 local _token_resp
                 _token_resp=$(curl -sf -X POST "https://oauth2.googleapis.com/token" \
                     -d "code=${_auth_code}" \
@@ -1070,14 +1102,14 @@ collect_integrations() {
                 local _oauth_err=$(echo "$_token_resp" | jq -r '.error // empty')
                 if [[ -n "$_oauth_err" ]]; then
                     print_warn "OAuth error: $_oauth_err"
-                    print_info "You can retry later with: ${TARS_HOME:-/opt/tars}/scripts/google-oauth.sh"
                     GOOGLE_REFRESH_TOKEN=""
                 elif [[ -n "$GOOGLE_REFRESH_TOKEN" ]]; then
                     print_success "Google OAuth: fully configured"
                 else
-                    print_warn "No refresh token received — retry with: ${TARS_HOME:-/opt/tars}/scripts/google-oauth.sh"
+                    print_warn "No refresh token received"
                 fi
             fi
+            [[ -z "${GOOGLE_REFRESH_TOKEN:-}" ]] && print_info "Retry later with: ${TARS_HOME:-/opt/tars}/scripts/google-oauth.sh"
         else
             GOOGLE_REFRESH_TOKEN=""
             print_info "Run later: ${TARS_HOME:-/opt/tars}/scripts/google-oauth.sh"
