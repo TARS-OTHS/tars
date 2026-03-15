@@ -147,18 +147,22 @@ echo "$UPDATED_VAULT" | age -r "$AGE_PUBKEY" -o "$VAULT_PATH"
 chmod 600 "$VAULT_PATH"
 ok "Vault updated"
 
-# Update MetaMCP Google server config if gateway is running
+# Inject credentials from vault into tmpfs and restart gateway
+info "Injecting credentials into tmpfs..."
+"$SCRIPT_DIR/inject-mcp-creds.sh"
+
 GATEWAY_URL="http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT}"
 if curl -sf "${GATEWAY_URL}/" >/dev/null 2>&1; then
-    ok "MCP gateway is running at ${GATEWAY_URL}"
-    info "Update the google-workspace server's GOOGLE_REFRESH_TOKEN env var"
-    info "via the MetaMCP UI at ${GATEWAY_URL}"
+    info "Restarting MCP gateway..."
+    (cd "$TARS_HOME" && docker compose restart mcp-gateway 2>/dev/null) \
+        && ok "MCP gateway restarted" \
+        || warn "Could not restart gateway — restart manually"
 else
-    warn "MCP gateway not running — refresh token saved in vault only"
-    info "Start services with: cd $TARS_HOME && docker compose up -d"
+    warn "MCP gateway not running — start with: cd $TARS_HOME && docker compose up -d"
 fi
 
 echo
 ok "Google OAuth setup complete"
-echo "  Refresh token stored in encrypted vault"
+echo "  Refresh token encrypted in vault"
+echo "  Credentials injected into tmpfs (RAM-only, never on disk)"
 echo "  Scopes: Gmail, Calendar, Drive, Sheets, Docs"

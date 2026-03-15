@@ -53,7 +53,7 @@ Search before asking questions the user may have already answered.
 
 ## Rule 4: Credentials Stay in the Vault
 
-Never store plaintext secrets. All credentials are in age-encrypted vault, accessed via auth proxy.
+Never store plaintext secrets. All credentials are in the age-encrypted vault. API access goes through the auth proxy (credential injection) or MCP gateway (mcporter). You never handle raw API keys — they're injected at the infrastructure layer.
 
 ## Rule 5: Ask Before External Actions
 

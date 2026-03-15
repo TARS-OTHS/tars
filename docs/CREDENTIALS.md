@@ -101,6 +101,7 @@ Services access secrets via read-only volume mounts:
 - **credential-proxy**: vault mounted read-only
 - **memory-api**: `.secrets` mounted read-only (for claude-token)
 - **cron**: `.secrets` mounted read-write (to update claude-token on refresh), OC auth dir mounted read-only
+- **mcp-gateway**: `/run/tars/mcp-creds/` (tmpfs, RAM-only) mounted for MCP server credentials — decrypted from vault at startup by `scripts/inject-mcp-creds.sh`, never on disk
 
 ---
 

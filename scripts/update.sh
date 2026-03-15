@@ -107,6 +107,11 @@ if [[ "$NO_REBUILD" == false ]]; then
 fi
 
 # --- 5. Restart services ---
+# Inject MCP credentials from vault into tmpfs before starting containers
+if [[ -x "$TARS_HOME/scripts/inject-mcp-creds.sh" ]]; then
+    "$TARS_HOME/scripts/inject-mcp-creds.sh"
+fi
+
 info "Restarting Docker services..."
 docker compose up -d 2>&1 | tail -5
 ok "Docker services restarted"

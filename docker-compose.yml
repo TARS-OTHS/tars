@@ -180,8 +180,8 @@ services:
     ports:
       - "${DOCKER_HOST_IP:-172.17.0.1}:${MCP_GATEWAY_PORT:-12008}:12008"
     volumes:
-      - ${HOME}/.config/google-mcp-mount:/app/google-mcp/config:ro
-      - ${HOME}/.local/share/google-mcp-mount:/app/google-mcp/data
+      - /run/tars/mcp-creds/config:/app/google-mcp/config:ro
+      - /run/tars/mcp-creds/data:/app/google-mcp/data
     depends_on:
       mcp-db:
         condition: service_healthy

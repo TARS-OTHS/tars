@@ -90,8 +90,6 @@ HITL_GATES = [
     ("POST", "ops/agent-restore", "Restore agent from backup", "ops_backup"),
     # Watchdog
     ("POST", "ops/watchdog-configure", "Configure watchdog rules", "ops_watchdog"),
-    # Google OAuth
-    ("POST", "ops/google-reauth", "Google OAuth refresh", "ops_generic"),
 ]
 
 

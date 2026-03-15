@@ -951,19 +951,9 @@ configure_mcp_google() {
     g_client_secret=$(echo "$google_creds" | jq -r '.client_secret')
     g_refresh_token=$(echo "$google_creds" | jq -r '.refresh_token // empty')
 
-    # Write Google credential files for the MCP server
-    # These get mounted into the MetaMCP container
-    mkdir -p "$HOME/.config/google-mcp" "$HOME/.local/share/google-mcp"
-    echo "{\"installed\":{\"client_id\":\"${g_client_id}\",\"client_secret\":\"${g_client_secret}\",\"redirect_uris\":[\"http://localhost\"]}}" \
-        > "$HOME/.config/google-mcp/credentials.json"
-    chmod 600 "$HOME/.config/google-mcp/credentials.json"
-
-    if [[ -n "$g_refresh_token" ]]; then
-        echo "{\"access_token\":\"\",\"refresh_token\":\"${g_refresh_token}\",\"scope\":\"https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/documents\",\"token_type\":\"Bearer\",\"expiry_date\":0}" \
-            > "$HOME/.local/share/google-mcp/tokens.json"
-        chmod 600 "$HOME/.local/share/google-mcp/tokens.json"
-        print_success "Google credential files written"
-    fi
+    # Inject credentials from vault into tmpfs (RAM-only)
+    # The inject script handles tmpfs mount, vault decrypt, and file creation
+    "${TARS_HOME}/scripts/inject-mcp-creds.sh"
 
     # Create the Google MCP server in MetaMCP
     local server_payload

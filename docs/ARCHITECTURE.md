@@ -123,7 +123,6 @@ Central credential manager. All outbound API calls from agents go through the au
 Routes are configured per integration:
 ```
 /anthropic/  → api.anthropic.com    (Bearer token)
-/google/     → www.googleapis.com   (OAuth2, auto-refresh)
 /discord/    → discord.com/api/v10  (Bot token)
 /tavily/     → api.tavily.com       (Bearer token)
 /github/     → api.github.com       (Bearer token)
@@ -179,7 +178,7 @@ MetaMCP-based MCP server aggregator. Centralises access to external tool integra
 - MetaMCP runs as a Docker service with a PostgreSQL backing store
 - MCP servers (e.g., Google Workspace) run as child processes inside the MetaMCP container
 - Agents access MCP tools via the `mcporter` CLI (pre-installed in sandbox image)
-- Credentials for MCP servers are mounted into the container from host-side files — never visible to agents
+- Credentials are encrypted in the age vault, decrypted into tmpfs (RAM-only) at startup via `scripts/inject-mcp-creds.sh`, and mounted into the container — never on disk, never visible to agents
 
 **How agents use it:**
 ```bash
@@ -193,7 +192,7 @@ mcporter call google-workspace.drive_search --query "budget 2026"
 ```
 
 **Configured MCP servers:**
-- **Google Workspace** (`@pegasusheavy/google-mcp`) — 116 tools covering Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Meet, Chat, Contacts, Notes, Tasks, YouTube
+- **Google Workspace** (`@pegasusheavy/google-mcp`) — 128 tools covering Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Meet, Chat, Contacts, Notes, Tasks, YouTube
 
 **Adding new MCP servers:**
 1. Access MetaMCP UI via SSH tunnel: `ssh -L 12008:172.17.0.1:12008 <host>`
@@ -201,7 +200,7 @@ mcporter call google-workspace.drive_search --query "budget 2026"
 3. Add a new server with its command, args, and environment variables
 4. Assign it to the `default` namespace
 
-**Security model:** Same as auth proxy — credentials live on the host, MCP servers run on the host (inside MetaMCP container), agents only see the tool interface via mcporter. No raw credentials reach agent sandboxes.
+**Security model:** Same as auth proxy — credentials are encrypted in the vault, decrypted into tmpfs (RAM-only) at service startup, and mounted read-only into the MetaMCP container. Agents only see the tool interface via mcporter. No raw credentials reach agent sandboxes, and no plaintext credentials exist on disk.
 
 ### Dashboard (:8765/:8766)
 

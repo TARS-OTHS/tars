@@ -20,22 +20,30 @@ curl -s -X POST http://${DOCKER_HOST_IP}:${MEMORY_API_PORT}/memory/session-state
   -d '{"agent": "${AGENT_ID}", "task_summary": "what we did", "status": "completed", "context": "key details"}'
 ```
 
-## MCP Gateway (MetaMCP)
+## MCP Gateway (Google Workspace + more)
 
-MCP tools are available via the `mcporter` CLI. The gateway aggregates all MCP servers behind one endpoint.
+MCP tools are available via the `mcporter` CLI. The gateway aggregates all MCP servers.
+Credentials are injected by the gateway — you never see or handle API keys.
 
 ```bash
-# List all available MCP tools
+# List all available tools
 mcporter list
 
-# Call a tool
-mcporter call <server>.<tool> --arg value
+# List tools with full documentation
+mcporter list google-workspace --schema
 
-# Example: search Gmail
-mcporter call google-workspace.gmail_search --query "invoices"
+# Call a tool (server name, then tool name, then key=value args)
+mcporter call google-workspace <tool_name> key=value
+
+# Examples:
+mcporter call google-workspace google-workspace__calendar_today
+mcporter call google-workspace google-workspace__calendar_list_events
+mcporter call google-workspace google-workspace__gmail_search query="invoices"
+mcporter call google-workspace google-workspace__drive_list_files query="budget 2026"
+mcporter call google-workspace google-workspace__gmail_send_email to="user@example.com" subject="Hello" body="Message"
 ```
 
-mcporter is pre-configured to connect to the gateway at http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT}.
+**Available Google Workspace tools** (128 tools): Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Meet, Chat, Contacts, Notes, Tasks, YouTube. Run `mcporter list google-workspace --schema` for full documentation.
 
 ## Auth Proxy (port ${AUTH_PROXY_PORT})
 

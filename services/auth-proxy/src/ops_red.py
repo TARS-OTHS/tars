@@ -11,7 +11,6 @@ Endpoints:
   Disk management: disk/cleanup
   Backup operations: agent-backup, agent-restore, backups (list)
   Watchdog: watchdog/configure
-  Google OAuth: google-reauth
 """
 
 import asyncio
@@ -911,62 +910,6 @@ async def handle_ops_watchdog_configure(request):
 
 
 # =============================================================================
-# GOOGLE OAUTH
-# =============================================================================
-
-async def handle_ops_google_reauth(request):
-    """Trigger Google OAuth token refresh. HITL-gated."""
-    hitl = await _hitl_gate(request)
-    if hitl:
-        return hitl
-
-    agent_id = _get_agent_id(request)
-    log.info("RED: Google reauth requested by %s", agent_id)
-
-    # Try to force-refresh the token
-    try:
-        from google.oauth2.credentials import Credentials
-        from google.auth.transport.requests import Request as GoogleAuthRequest
-
-        token_path = str(_TARS_HOME / ".config/google/token.json")
-        if not os.path.exists(token_path):
-            return web.json_response({"error": "No Google token file found"}, status=404)
-
-        with open(token_path) as f:
-            token_data = json.load(f)
-
-        creds = Credentials.from_authorized_user_info(token_data)
-        if creds.expired or not creds.valid:
-            creds.refresh(GoogleAuthRequest())
-            # Save refreshed token
-            with open(token_path, "w") as f:
-                json.dump(json.loads(creds.to_json()), f, indent=2)
-
-            await _notify_agent_ops(request.app,
-                f"🔴 **Google OAuth refreshed** — by `{agent_id}`")
-            return web.json_response({
-                "status": "refreshed",
-                "valid": creds.valid,
-                "expiry": creds.expiry.isoformat() if creds.expiry else None,
-            })
-        else:
-            return web.json_response({
-                "status": "already_valid",
-                "expiry": creds.expiry.isoformat() if creds.expiry else None,
-            })
-
-    except Exception as e:
-        log.error("Google reauth failed: %s", e)
-        if "refresh" in str(e).lower():
-            return web.json_response({
-                "status": "reauth_required",
-                "message": "Refresh token expired. Manual re-authorization needed.",
-                "error": str(e),
-            }, status=401)
-        return web.json_response({"error": str(e)}, status=500)
-
-
-# =============================================================================
 # ROUTE REGISTRATION
 # =============================================================================
 
@@ -1011,7 +954,4 @@ def register_red_routes(app, route_defs, get_agent_id_fn, notify_fn, save_vault_
     # Watchdog configuration (HITL-gated)
     app.router.add_post("/ops/watchdog-configure", handle_ops_watchdog_configure)
 
-    # Google OAuth (HITL-gated)
-    app.router.add_post("/ops/google-reauth", handle_ops_google_reauth)
-
-    log.info("Red tier ops endpoints registered (16 endpoints, 15 HITL-gated + 1 read-only)")
+    log.info("Red tier ops endpoints registered (15 endpoints, 14 HITL-gated + 1 read-only)")

@@ -13,7 +13,6 @@ Routes:
   /notion/      -> https://api.notion.com         (Bearer + Notion-Version)
   /cloudflare/  -> https://api.cloudflare.com     (Bearer token)
   /trello/      -> https://api.trello.com         (key/token query params)
-  /google/      -> https://www.googleapis.com     (OAuth2 Bearer, auto-refresh)
   /joplin/      -> http://127.0.0.1:41184         (Joplin data API token)
 """
 
@@ -32,8 +31,6 @@ from ops_green_yellow import register_green_yellow_routes
 from hitl import check_hitl_gate, register_hitl_routes
 from ops_red import register_red_routes
 from content_safety import process_response, post_behavioral_alerts
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request as GoogleAuthRequest
 import os
 import shutil
 import signal
@@ -109,52 +106,6 @@ def make_trello_auth(secret_key):
     return inject
 
 
-def make_google_auth(token_key):
-    """Google OAuth2 with automatic token refresh."""
-    _lock = threading.Lock()
-    _creds = {"obj": None, "refreshed": False}
-
-    def inject(headers, params, ctx):
-        with _lock:
-            if _creds["obj"] is None:
-                raw = ctx["secrets"].get(token_key)
-                if not raw:
-                    log.warning("No secret found for key: %s", token_key)
-                    return
-                try:
-                    tok = json.loads(raw) if isinstance(raw, str) else raw
-                    _creds["obj"] = Credentials(
-                        token=tok.get("token"),
-                        refresh_token=tok.get("refresh_token"),
-                        token_uri=tok.get("token_uri", "https://oauth2.googleapis.com/token"),
-                        client_id=tok.get("client_id"),
-                        client_secret=tok.get("client_secret"),
-                        scopes=tok.get("scopes"),
-                    )
-                    log.info("Google OAuth credentials loaded (scopes: %s)", tok.get("scopes"))
-                except Exception as e:
-                    log.error("Failed to load Google credentials: %s", e)
-                    return
-
-            cred = _creds["obj"]
-            # Always refresh on first use (vault token is always stale)
-            # and whenever google-auth thinks token is invalid
-            if not _creds["refreshed"] or not cred.valid:
-                if cred.refresh_token:
-                    log.info("Refreshing Google token...")
-                    try:
-                        cred.refresh(GoogleAuthRequest())
-                        _creds["refreshed"] = True
-                        log.info("Google token refreshed successfully")
-                    except Exception as e:
-                        log.error("Google token refresh failed: %s", e)
-                        return
-                else:
-                    log.warning("No refresh token available")
-                    return
-
-            headers["Authorization"] = f"Bearer {cred.token}"
-    return inject
 
 
 def make_joplin_auth(api_token):
@@ -384,10 +335,6 @@ ROUTE_DEFS = {
     "trello": {
         "upstream": "https://api.trello.com",
         "auth": make_trello_auth("secrets/trello-credentials.json"),
-    },
-    "google": {
-        "upstream": "https://www.googleapis.com",
-        "auth": make_google_auth("secrets/google-token.json"),
     },
     "anthropic": {
         "upstream": "https://api.anthropic.com",
@@ -2296,12 +2243,8 @@ async def handle_index(request):
             {"method": "POST", "path": "/ops/agent-restore", "desc": "Restore agent from backup (HITL)"},
             {"method": "GET", "path": "/ops/backups", "desc": "List available backups"},
             {"method": "POST", "path": "/ops/watchdog-configure", "desc": "Configure watchdog rules (HITL)"},
-            {"method": "POST", "path": "/ops/google-reauth", "desc": "Google OAuth refresh (HITL)"},
         ],
         "hitl_gated": [
-            "POST google/gmail/v1/users/me/messages/send — Send email",
-            "POST google/gmail/v1/users/me/drafts/send — Send draft",
-            "POST/PATCH google/drive/v3/**/permissions — Share Drive files",
             "POST/PATCH notion/v1/pages — Create/modify Notion pages",
             "POST/PUT/PATCH/DELETE cloudflare/ — Any Cloudflare mutation",
             "POST ops/agent-create — Create agent",
@@ -2322,7 +2265,6 @@ async def handle_index(request):
             "POST ops/agent-backup — Backup agent",
             "POST ops/agent-restore — Restore agent",
             "POST ops/watchdog-configure — Configure watchdog",
-            "POST ops/google-reauth — Google OAuth refresh",
         ],
         "note": "Append path after prefix, e.g. /openai/v1/models",
     })
