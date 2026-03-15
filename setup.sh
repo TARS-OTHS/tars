@@ -951,25 +951,31 @@ configure_mcp_google() {
     g_client_secret=$(echo "$google_creds" | jq -r '.client_secret')
     g_refresh_token=$(echo "$google_creds" | jq -r '.refresh_token // empty')
 
+    # Write Google credential files for the MCP server
+    # These get mounted into the MetaMCP container
+    mkdir -p "$HOME/.config/google-mcp" "$HOME/.local/share/google-mcp"
+    echo "{\"installed\":{\"client_id\":\"${g_client_id}\",\"client_secret\":\"${g_client_secret}\",\"redirect_uris\":[\"http://localhost\"]}}" \
+        > "$HOME/.config/google-mcp/credentials.json"
+    chmod 600 "$HOME/.config/google-mcp/credentials.json"
+
+    if [[ -n "$g_refresh_token" ]]; then
+        echo "{\"access_token\":\"\",\"refresh_token\":\"${g_refresh_token}\",\"scope\":\"https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/documents\",\"token_type\":\"Bearer\",\"expiry_date\":0}" \
+            > "$HOME/.local/share/google-mcp/tokens.json"
+        chmod 600 "$HOME/.local/share/google-mcp/tokens.json"
+        print_success "Google credential files written"
+    fi
+
     # Create the Google MCP server in MetaMCP
-    # MetaMCP API: POST /api/mcp-servers to add a server
     local server_payload
     server_payload=$(jq -n \
         --arg name "google-workspace" \
         --arg cmd "npx" \
-        --arg client_id "$g_client_id" \
-        --arg client_secret "$g_client_secret" \
-        --arg refresh_token "$g_refresh_token" \
         '{
             name: $name,
             type: "STDIO",
             command: $cmd,
-            args: ["-y", "@anthropic/mcp-google-workspace"],
-            env: {
-                GOOGLE_CLIENT_ID: $client_id,
-                GOOGLE_CLIENT_SECRET: $client_secret,
-                GOOGLE_REFRESH_TOKEN: $refresh_token
-            }
+            args: ["-y", "@pegasusheavy/google-mcp"],
+            env: {}
         }')
 
     local http_code
