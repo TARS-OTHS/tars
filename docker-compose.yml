@@ -173,13 +173,15 @@ services:
       - POSTGRES_DB=metamcp
       - BETTER_AUTH_SECRET=${MCP_AUTH_SECRET:-changeme-generate-a-real-secret}
       - APP_URL=http://localhost:${MCP_GATEWAY_PORT:-12008}
+      - GOOGLE_MCP_CONFIG=/app/google-mcp/config
+      - GOOGLE_MCP_DATA=/app/google-mcp/data
       - NODE_ENV=production
       - LOG_LEVEL=errors-only
     ports:
       - "${DOCKER_HOST_IP:-172.17.0.1}:${MCP_GATEWAY_PORT:-12008}:12008"
     volumes:
-      - ${HOME}/.config/google-mcp:/home/nextjs/.config/google-mcp:ro
-      - ${HOME}/.local/share/google-mcp:/home/nextjs/.local/share/google-mcp
+      - ${HOME}/.config/google-mcp:/app/google-mcp/config:ro
+      - ${HOME}/.local/share/google-mcp:/app/google-mcp/data
     depends_on:
       mcp-db:
         condition: service_healthy
