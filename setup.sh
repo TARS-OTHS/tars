@@ -1004,16 +1004,27 @@ write_mcporter_config() {
     # This gets copied into agent sandboxes so mcporter knows where the gateway is
     local mcporter_dir="${workspace}/.mcporter"
     mkdir -p "$mcporter_dir"
+
+    # Also write to home dir so mcporter finds it from any working directory
+    mkdir -p "$HOME/.mcporter"
+
+    # Generate a MetaMCP API key would be needed here — for now use placeholder
+    # The actual key is created via MetaMCP UI after first deploy
+    local mcp_api_key="${MCP_API_KEY:-}"
+
     cat > "${mcporter_dir}/mcporter.json" << MCPEOF
 {
-  "servers": {
-    "tars-gateway": {
-      "transport": "http",
-      "url": "http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT:-12008}/metamcp/default/mcp"
+  "mcpServers": {
+    "google-workspace": {
+      "url": "http://${DOCKER_HOST_IP}:${MCP_GATEWAY_PORT:-12008}/metamcp/default/sse",
+      "headers": {
+        "X-API-Key": "${mcp_api_key}"
+      }
     }
   }
 }
 MCPEOF
+    cp "${mcporter_dir}/mcporter.json" "$HOME/.mcporter/mcporter.json"
     print_success "mcporter config written to ${workspace}/.mcporter/"
 }
 
