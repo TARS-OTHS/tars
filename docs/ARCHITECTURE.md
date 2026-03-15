@@ -46,6 +46,13 @@ TARS is a layered platform for running AI agents with persistent memory, secure 
 │  │ Forward HTTP proxy — intercepts outbound traffic and     ││
 │  │ injects API keys in-flight for sandboxed containers      ││
 │  └──────────────────────────────────────────────────────────┘│
+│                                                              │
+│  ┌────────────┐ ┌────────────────────────────────────────── ┐│
+│  │ MCP Gateway│ │ MCP DB (PostgreSQL)                       ││
+│  │  :12008    │ │                                           ││
+│  │  MetaMCP   │ │ Server config, namespaces, endpoints      ││
+│  │  Aggregator│ │                                           ││
+│  └────────────┘ └───────────────────────────────────────────┘│
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────┐
@@ -53,7 +60,7 @@ TARS is a layered platform for running AI agents with persistent memory, secure 
 │                                                              │
 │  Image: tars-sandbox:base                                    │
 │  Base: node:20-slim + python3/pip + curl/git/jq + ffmpeg     │
-│  Pre-installed: sympy, mpmath                                │
+│  Pre-installed: sympy, mpmath, mcporter (MCP tool access)    │
 │  Agents install additional packages emergently via pip/npm   │
 │                                                              │
 │  Security:                                                   │
@@ -164,6 +171,38 @@ HTTP/HTTPS proxy for agent sandboxes. Agents can't make direct outbound connecti
 
 Forward HTTP proxy that intercepts outbound traffic from sandbox containers and injects API keys in-flight. Works alongside the auth proxy (reverse proxy) to ensure credentials never enter agent containers.
 
+### MCP Gateway (:12008)
+
+MetaMCP-based MCP server aggregator. Centralises access to external tool integrations via the Model Context Protocol (MCP).
+
+**Architecture:**
+- MetaMCP runs as a Docker service with a PostgreSQL backing store
+- MCP servers (e.g., Google Workspace) run as child processes inside the MetaMCP container
+- Agents access MCP tools via the `mcporter` CLI (pre-installed in sandbox image)
+- Credentials for MCP servers are mounted into the container from host-side files — never visible to agents
+
+**How agents use it:**
+```bash
+# List all available MCP tools
+mcporter list
+
+# Call a specific tool
+mcporter call google-workspace.gmail_search --query "invoices"
+mcporter call google-workspace.calendar_today
+mcporter call google-workspace.drive_search --query "budget 2026"
+```
+
+**Configured MCP servers:**
+- **Google Workspace** (`@pegasusheavy/google-mcp`) — 116 tools covering Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Meet, Chat, Contacts, Notes, Tasks, YouTube
+
+**Adding new MCP servers:**
+1. Access MetaMCP UI via SSH tunnel: `ssh -L 12008:172.17.0.1:12008 <host>`
+2. Open `http://localhost:12008`
+3. Add a new server with its command, args, and environment variables
+4. Assign it to the `default` namespace
+
+**Security model:** Same as auth proxy — credentials live on the host, MCP servers run on the host (inside MetaMCP container), agents only see the tool interface via mcporter. No raw credentials reach agent sandboxes.
+
 ### Dashboard (:8765/:8766)
 
 Web interface for platform management:
@@ -196,6 +235,7 @@ All agents run in Docker containers using the `tars-sandbox:base` image, built f
 **Pre-installed:**
 - Node.js 20, Python 3, pip, git, curl, jq, ffmpeg
 - sympy, mpmath (symbolic math)
+- mcporter (MCP tool access via gateway)
 
 **Emergent package installation:** Agents can install additional packages at runtime using `pip install --user` or `npm install`. Packages installed to `/workspace/.local/` persist across sessions in the workspace volume. The `PYTHONUSERBASE` environment variable is pre-configured.
 
@@ -228,6 +268,7 @@ Each agent has a workspace mounted into its sandbox container:
   AGENTS.md        — operating rules (session startup, memory, credentials)
   TOOLS.md         — available services and endpoints
   MEMORY.md        — memory system reference
+  .mcporter/       — mcporter config (MCP gateway connection)
   .local/          — pip/npm packages installed by the agent (persists)
 ```
 
@@ -301,6 +342,7 @@ All services bind to the Docker bridge network (`172.17.0.1`), not public interf
 Agent Sandbox → http_proxy (172.17.0.1:8899) → Web Proxy → Internet
 Agent Sandbox → 172.17.0.1:9100               → Auth Proxy → External APIs
 Agent Sandbox → 172.17.0.1:8897               → Memory API
+Agent Sandbox → mcporter → 172.17.0.1:12008   → MCP Gateway → MCP Servers → External APIs
 ```
 
 The dashboard binds to `127.0.0.1` by default. With Tailscale, it binds to `0.0.0.0` but is only reachable via the Tailscale network.

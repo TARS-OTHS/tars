@@ -44,6 +44,7 @@ Every agent runs in a `tars-sandbox:base` Docker container managed by OpenClaw. 
 | **No env var exposure** | API keys are not passed as environment variables to agent containers |
 | **No filesystem access** | Agent containers cannot read `.secrets/`, the vault, or age keys |
 | **Route-based access** | Agents can only reach APIs that have configured proxy routes |
+| **MCP credential isolation** | MCP server credentials are mounted into the MCP gateway container from host files — agents access tools via mcporter CLI, never see credentials |
 
 ## Threat Model
 
