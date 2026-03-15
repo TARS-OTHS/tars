@@ -15,6 +15,7 @@ Last updated: 2026-03-15
 ## Soon — Once in Daily Operation
 
 - [ ] **Voice STT↔TTS** — Groq STT + ElevenLabs TTS for Discord voice channel conversations. Architecture proposed, scaffolded. Implement Groq for all STT.
+- [ ] **Voice call (Vapi)** — Phone call interface to agents via Vapi. Talk to T.A.R.S by calling a number.
 - [ ] **Chat-based connector setup** — Add integrations conversationally via T.A.R.S (tokens entered via terminal, not in chat).
 - [ ] **Control Rescue Bot from phone** — Mobile-friendly interface for managing agents on the go.
 - [ ] **OC skills: core set** — summarize, blogwatcher, nano-pdf, nano banana pro, gemini integration.
