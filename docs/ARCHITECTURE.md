@@ -186,9 +186,9 @@ MetaMCP-based MCP server aggregator. Centralises access to external tool integra
 mcporter list
 
 # Call a specific tool
-mcporter call google-workspace.gmail_search --query "invoices"
-mcporter call google-workspace.calendar_today
-mcporter call google-workspace.drive_search --query "budget 2026"
+mcporter call google-workspace google-workspace__gmail_search query="invoices"
+mcporter call google-workspace google-workspace__calendar_today
+mcporter call google-workspace google-workspace__drive_list_files query="budget 2026"
 ```
 
 **Configured MCP servers:**
