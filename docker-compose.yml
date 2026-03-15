@@ -172,7 +172,7 @@ services:
       - POSTGRES_PASSWORD=metamcp
       - POSTGRES_DB=metamcp
       - BETTER_AUTH_SECRET=${MCP_AUTH_SECRET:-changeme-generate-a-real-secret}
-      - APP_URL=http://localhost:${MCP_GATEWAY_PORT:-12008}
+      - APP_URL=http://${DOCKER_HOST_IP:-172.17.0.1}:${MCP_GATEWAY_PORT:-12008}
       - GOOGLE_MCP_CONFIG=/app/google-mcp/config
       - GOOGLE_MCP_DATA=/app/google-mcp/data
       - NODE_ENV=production
