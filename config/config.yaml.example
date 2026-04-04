@@ -6,7 +6,6 @@ tars:
 connectors:
   discord:
     enabled: true
-    dev_guild: "YOUR_GUILD_ID"
     accounts:
       main:
         token_key: discord-token
@@ -28,6 +27,7 @@ defaults:
     max_history: 50
     summarize_after: 30
   memory:
+    backend: sqlite
     semantic_search: false
     decay_enabled: false
     max_results: 10

@@ -30,7 +30,6 @@ class DiscordConnector(Connector):
         self.bots: dict[str, DiscordBot] = {}
         self._admin_users: list[str] = config.get("admin_users", [])
         self._command_sync: str = config.get("command_sync", "auto")
-        self._dev_guild: str | None = config.get("dev_guild")
         # Set by the system after init — agent configs and skills for slash commands
         self._agent_configs: dict[str, dict] = {}
         self._skills: dict[str, Any] = {}
@@ -61,7 +60,6 @@ class DiscordConnector(Connector):
                 account_name="default",
                 connector=self,
                 admin_users=self._admin_users,
-                dev_guild=self._dev_guild,
             )
             self.bots["default"] = bot
             await bot.start(token)
@@ -82,7 +80,6 @@ class DiscordConnector(Connector):
                 account_name=account_name,
                 connector=self,
                 admin_users=self._admin_users,
-                dev_guild=self._dev_guild,
                 intents_list=intents_list,
                 max_messages=max_messages,
             )
@@ -308,14 +305,12 @@ class DiscordBot:
         account_name: str,
         connector: DiscordConnector,
         admin_users: list[str],
-        dev_guild: str | None = None,
         intents_list: list[str] | None = None,
         max_messages: int = 1000,
     ):
         self.account_name = account_name
         self.connector = connector
         self.admin_users = admin_users
-        self.dev_guild_id = int(dev_guild) if dev_guild else None
 
         # Bot-to-bot loop detection: bot_user_id -> [timestamps]
         self._bot_loop_hits: dict[int, list[float]] = {}
@@ -360,18 +355,34 @@ class DiscordBot:
             f"(guilds: {len(self.client.guilds)})"
         )
 
-        # Sync slash commands with Discord
-        try:
-            if self.dev_guild_id:
-                guild = discord.Object(id=self.dev_guild_id)
-                self.tree.copy_global_to(guild=guild)
-                synced = await self.tree.sync(guild=guild)
-                logger.info(f"Synced {len(synced)} commands to guild {self.dev_guild_id}")
-            else:
+        # Sync slash commands with Discord.
+        # Sync per-guild to every guild THIS bot is a member of — guild-scoped
+        # syncs are instant, and each bot may be in different guilds.
+        # No hardcoded guild: we discover membership at runtime from the gateway.
+        target_guilds = list(self.client.guilds)
+        if not target_guilds:
+            # Fallback — no guilds, do a global sync
+            try:
                 synced = await self.tree.sync()
-                logger.info(f"Synced {len(synced)} global commands (may take up to 1 hour)")
-        except Exception as e:
-            logger.error(f"Failed to sync commands: {e}")
+                logger.info(f"[{self.account_name}] Synced {len(synced)} global commands (may take up to 1 hour)")
+            except Exception as e:
+                logger.error(f"[{self.account_name}] Failed to sync global commands: {e}")
+            return
+
+        for guild in target_guilds:
+            try:
+                guild_obj = discord.Object(id=guild.id)
+                self.tree.copy_global_to(guild=guild_obj)
+                synced = await self.tree.sync(guild=guild_obj)
+                logger.info(
+                    f"[{self.account_name}] Synced {len(synced)} commands to guild "
+                    f"{guild.name!r} ({guild.id})"
+                )
+            except Exception as e:
+                logger.error(
+                    f"[{self.account_name}] Failed to sync commands to guild "
+                    f"{guild.id}: {e}"
+                )
 
     async def on_message(self, message: discord.Message) -> None:
         """Handle incoming Discord messages."""
@@ -849,14 +860,24 @@ class DiscordBot:
                 return
             await interaction.response.defer(ephemeral=True)
             try:
-                if self.dev_guild_id:
-                    guild = discord.Object(id=self.dev_guild_id)
-                    self.tree.copy_global_to(guild=guild)
-                    synced = await self.tree.sync(guild=guild)
-                else:
+                target_guilds = list(self.client.guilds)
+                if not target_guilds:
                     synced = await self.tree.sync()
+                    await interaction.followup.send(
+                        f"Synced {len(synced)} global commands.", ephemeral=True
+                    )
+                    return
+                lines = []
+                for guild in target_guilds:
+                    try:
+                        guild_obj = discord.Object(id=guild.id)
+                        self.tree.copy_global_to(guild=guild_obj)
+                        synced = await self.tree.sync(guild=guild_obj)
+                        lines.append(f"✓ {guild.name}: {len(synced)} commands")
+                    except Exception as ge:
+                        lines.append(f"✗ {guild.name}: {ge}")
                 await interaction.followup.send(
-                    f"Synced {len(synced)} commands.", ephemeral=True
+                    "**Sync results:**\n" + "\n".join(lines), ephemeral=True
                 )
             except Exception as e:
                 await interaction.followup.send(f"Sync failed: {e}", ephemeral=True)

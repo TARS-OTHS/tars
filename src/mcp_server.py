@@ -227,14 +227,24 @@ def build_server(vault: FernetVault, config: dict) -> FastMCP:
     tars_tools = get_all_tools()
     logger.info(f"Discovered {len(tars_tools)} tools from registry")
 
-    # Initialize memory backend
+    # Initialize memory backend.
+    # Defaults to sqlite if no backend is specified — this matches main.py's
+    # auto-discovery behaviour and prevents memory tools from silently failing
+    # with "Memory backend not configured for this agent" when config.yaml
+    # forgets to set defaults.memory.backend explicitly.
     memory = None
     defaults = config.get("defaults", {})
     mem_cfg = defaults.get("memory", {})
-    if mem_cfg.get("backend") == "sqlite":
+    backend_name = mem_cfg.get("backend", "sqlite")
+    if backend_name == "sqlite":
         from src.memory.sqlite import SQLiteMemory
         memory = SQLiteMemory(config=mem_cfg)
-        logger.info(f"Memory backend: SQLite (inline)")
+        logger.info("Memory backend: SQLite (inline)")
+    elif backend_name:
+        logger.warning(
+            f"Unknown memory backend '{backend_name}' in config — "
+            f"memory tools will be unavailable to agents."
+        )
 
         # Note: team module reads from team.json directly, no memory backend needed
 

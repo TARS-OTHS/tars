@@ -365,7 +365,6 @@ def step_generate(state: dict):
         "connectors": {
             "discord": {
                 "enabled": True,
-                "dev_guild": guild_id,
                 "accounts": {
                     bot_name: {"token_key": state.get("bot_token_key", "discord-token")},
                 },
@@ -376,7 +375,7 @@ def step_generate(state: dict):
         "defaults": {
             "llm": {"provider": "claude_code", "model": agent["model"], "max_tokens": 4096},
             "session": {"max_history": 50, "summarize_after": 30},
-            "memory": {"semantic_search": False, "decay_enabled": False, "max_results": 10},
+            "memory": {"backend": "sqlite", "semantic_search": False, "decay_enabled": False, "max_results": 10},
         },
         "security": {
             "hitl": {

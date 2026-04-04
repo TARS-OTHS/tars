@@ -128,7 +128,6 @@ tars:
 connectors:
   discord:
     enabled: true
-    dev_guild: "${GUILD_ID:-YOUR_GUILD_ID}"
     accounts:
       ${AGENT_NAME}:
         token_key: discord-token
