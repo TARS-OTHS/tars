@@ -337,6 +337,21 @@ systemctl status tars-v2.service
 journalctl -u tars-v2 -f
 ```
 
+### Updating a Running Install
+
+After pulling new code, run `uv sync` **before** restarting the service:
+
+```bash
+cd /opt/tars-v2
+sudo -u tars git pull
+sudo -u tars uv sync                       # reconcile .venv with lockfile
+sudo systemctl restart tars-v2
+```
+
+The service unit uses `uv run --no-sync` so that service start never writes to the sandboxed, read-only `.venv`. Dependency updates are therefore **explicit**: `uv sync` runs in a normal shell (where `.venv` is writable) before the restart.
+
+Skipping `uv sync` after a dep change means the service will either crash on startup (`ImportError` for a new dep) or silently run stale code against a bumped version. `uv sync` is a no-op when nothing changed, so it's safe to run unconditionally as part of the deploy ritual.
+
 ### Test Mode
 ```bash
 uv run python -m src.main --profile test

@@ -71,6 +71,10 @@ uv sync                    # install deps
 uv run python -m src.main  # run locally
 ```
 
+## Deployment
+
+When updating a running install (`git pull` + restart), follow the ritual in [ARCHITECTURE.md → Operations → Updating a Running Install](ARCHITECTURE.md#updating-a-running-install). The `git pull` → `systemctl restart` shortcut is **wrong** — service units use `uv run --no-sync`, so you must run `sudo -u tars uv sync` between the pull and the restart or the service will crash on a new dep or silently run stale code.
+
 ## Key Conventions
 
 - **Modules are files** — drop a .py in the right folder, it's available. No imports to add, no registry to update.
