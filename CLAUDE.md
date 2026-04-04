@@ -75,6 +75,18 @@ uv run python -m src.main  # run locally
 
 When updating a running install (`git pull` + restart), follow the ritual in [ARCHITECTURE.md → Operations → Updating a Running Install](ARCHITECTURE.md#updating-a-running-install). The `git pull` → `systemctl restart` shortcut is **wrong** — service units use `uv run --no-sync`, so you must run `sudo -u tars uv sync` between the pull and the restart or the service will crash on a new dep or silently run stale code.
 
+## File Ownership
+
+All files under the install directory (typically `/opt/tars-v2/`) are owned by `tars:tars` (the service user). The main service and timers run as `tars`, so root-owned files inside the tree are latent breakage — readable but not writable/deletable by the service, and `uv sync` / `uv run` will fail on any root-owned file in `.venv/`.
+
+**When editing files in this repo as root** (e.g. from a Claude Code session running as root), `chown tars:tars <file>` back after every save. Most editors — including the `Edit`/`Write` tools — rewrite files and the new file inherits the editing user's ownership, not the original's. After a batch of edits, verify with:
+
+```bash
+find /opt/tars-v2 -not -user tars 2>/dev/null
+```
+
+Zero output = clean. Any output = run `sudo chown -R tars:tars <paths>` on the listed files.
+
 ## Key Conventions
 
 - **Modules are files** — drop a .py in the right folder, it's available. No imports to add, no registry to update.
