@@ -222,7 +222,7 @@ Included tool packs:
 | **Cloudflare** | zones, dns_list, dns_update |
 | **Notion** | search, read, create |
 | **Web** | web_search (Tavily) |
-| **System** | create_skill, read_url, browse_url, install_mcp, list_capabilities |
+| **System** | create_skill, read_url, browse_url, browser, install_mcp, list_capabilities |
 | **Tmux** | list, send, read, new |
 | **Inter-agent** | send_message, ask_agent, send_to_agent |
 
