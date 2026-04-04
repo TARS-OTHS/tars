@@ -12,9 +12,8 @@ log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $LOG_PREFIX $1"; }
 
 ISSUES=""
 
-# 1. TARS v2 service running
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-if ! systemctl --user is-active tars-v2.service >/dev/null 2>&1; then
+# 1. TARS v2 service running (system-level since service-account migration)
+if ! systemctl is-active tars-v2.service >/dev/null 2>&1; then
     ISSUES="${ISSUES}\n- **tars-v2.service**: NOT RUNNING"
 fi
 
