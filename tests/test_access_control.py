@@ -25,9 +25,9 @@ TEAM_DATA = {
          "contact": {"discord": "333"}},
     ],
     "agents": [
-        {"id": "tars", "name": "T.A.R.S", "type": "agent",
+        {"id": "coordinator", "name": "Coordinator", "type": "agent",
          "agent_tier": "coordinator", "discord": "444"},
-        {"id": "rescue", "name": "Rescue Bot", "type": "agent",
+        {"id": "ops", "name": "Ops Bot", "type": "agent",
          "agent_tier": "privileged", "discord": "555"},
         {"id": "assistant", "name": "Assistant", "type": "agent",
          "agent_tier": "assistant", "discord": "666"},
@@ -72,10 +72,10 @@ def ac(team_file):
 class TestCanMessageOwner:
     """Owner (Alice) can message all agent tiers."""
     def test_owner_to_privileged(self, ac):
-        assert ac.can_message("111", "rescue") is True
+        assert ac.can_message("111", "ops") is True
 
     def test_owner_to_coordinator(self, ac):
-        assert ac.can_message("111", "tars") is True
+        assert ac.can_message("111", "coordinator") is True
 
     def test_owner_to_assistant(self, ac):
         assert ac.can_message("111", "assistant") is True
@@ -84,10 +84,10 @@ class TestCanMessageOwner:
 class TestCanMessageAdmin:
     """Admin (Bob) can message coordinator + assistant, NOT privileged."""
     def test_admin_to_privileged(self, ac):
-        assert ac.can_message("222", "rescue") is False
+        assert ac.can_message("222", "ops") is False
 
     def test_admin_to_coordinator(self, ac):
-        assert ac.can_message("222", "tars") is True
+        assert ac.can_message("222", "coordinator") is True
 
     def test_admin_to_assistant(self, ac):
         assert ac.can_message("222", "assistant") is True
@@ -96,10 +96,10 @@ class TestCanMessageAdmin:
 class TestCanMessageStaff:
     """Staff (staff1) can message assistant only."""
     def test_staff_to_privileged(self, ac):
-        assert ac.can_message("333", "rescue") is False
+        assert ac.can_message("333", "ops") is False
 
     def test_staff_to_coordinator(self, ac):
-        assert ac.can_message("333", "tars") is False
+        assert ac.can_message("333", "coordinator") is False
 
     def test_staff_to_assistant(self, ac):
         assert ac.can_message("333", "assistant") is True
@@ -108,10 +108,10 @@ class TestCanMessageStaff:
 class TestCanMessageUnknown:
     """Unknown users can't message anyone."""
     def test_unknown_to_privileged(self, ac):
-        assert ac.can_message("999", "rescue") is False
+        assert ac.can_message("999", "ops") is False
 
     def test_unknown_to_coordinator(self, ac):
-        assert ac.can_message("999", "tars") is False
+        assert ac.can_message("999", "coordinator") is False
 
     def test_unknown_to_assistant(self, ac):
         assert ac.can_message("999", "assistant") is False
@@ -120,26 +120,26 @@ class TestCanMessageUnknown:
 class TestCanMessageAgentToAgent:
     """Agent-to-agent messaging rules."""
     def test_privileged_to_coordinator(self, ac):
-        assert ac.can_message("555", "tars", is_bot=True) is True
+        assert ac.can_message("555", "coordinator", is_bot=True) is True
 
     def test_privileged_to_assistant(self, ac):
         assert ac.can_message("555", "assistant", is_bot=True) is True
 
     def test_coordinator_to_privileged(self, ac):
-        assert ac.can_message("444", "rescue", is_bot=True) is True
+        assert ac.can_message("444", "ops", is_bot=True) is True
 
     def test_coordinator_to_assistant(self, ac):
         assert ac.can_message("444", "assistant", is_bot=True) is True
 
     def test_assistant_to_coordinator(self, ac):
-        """Assistant (Assistant) cannot message any agents."""
-        assert ac.can_message("666", "tars", is_bot=True) is False
+        """Assistant cannot message any agents."""
+        assert ac.can_message("666", "coordinator", is_bot=True) is False
 
     def test_assistant_to_privileged(self, ac):
-        assert ac.can_message("666", "rescue", is_bot=True) is False
+        assert ac.can_message("666", "ops", is_bot=True) is False
 
     def test_unknown_bot(self, ac):
-        assert ac.can_message("999", "tars", is_bot=True) is False
+        assert ac.can_message("999", "coordinator", is_bot=True) is False
 
 
 # ============================================================
@@ -204,7 +204,7 @@ class TestCheckAssistantIsolation:
 
     def test_coordinator_not_isolated(self, ac):
         """Coordinator agent can use send_message (gets HITL, not deny)."""
-        r = ac.check("444", "send_message", is_bot=True, agent_id="tars")
+        r = ac.check("444", "send_message", is_bot=True, agent_id="coordinator")
         assert r["gate"] == "hitl"
 
 
@@ -239,7 +239,7 @@ class TestDisallowedToolsForSender:
 
     def test_agent_blocks_non_safe(self, ac):
         blocked = ac.disallowed_tools_for_sender(
-            "444", ALL_TOOLS, is_bot=True, agent_id="tars")
+            "444", ALL_TOOLS, is_bot=True, agent_id="coordinator")
         assert "memory_search" not in blocked
         assert "send_message" in blocked
 
@@ -312,10 +312,10 @@ class TestResolveTier:
 
 class TestAgentTierResolution:
     def test_coordinator(self, ac):
-        assert ac.get_agent_tier("tars") == "coordinator"
+        assert ac.get_agent_tier("coordinator") == "coordinator"
 
     def test_privileged(self, ac):
-        assert ac.get_agent_tier("rescue") == "privileged"
+        assert ac.get_agent_tier("ops") == "privileged"
 
     def test_assistant(self, ac):
         assert ac.get_agent_tier("assistant") == "assistant"
@@ -346,7 +346,7 @@ class TestEdgeCases:
         with patch("src.core.access_control.TEAM_FILE", tmp_path / "nope.json"):
             ac = AccessControl(CONFIG)
         assert ac.resolve_tier("111") == "unknown"
-        assert ac.can_message("111", "tars") is False
+        assert ac.can_message("111", "coordinator") is False
 
     def test_empty_config(self, team_file):
         with patch("src.core.access_control.TEAM_FILE", team_file):

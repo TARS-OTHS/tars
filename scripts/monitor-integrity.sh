@@ -13,8 +13,6 @@ log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $LOG_PREFIX $1"; }
 
 # Critical files to monitor
 MONITORED_FILES=(
-    "$TARS_HOME/agents/tars/CLAUDE.md"
-    "$TARS_HOME/agents/rescue/CLAUDE.md"
     "$TARS_HOME/config/config.yaml"
     "$TARS_HOME/config/agents.yaml"
     "$TARS_HOME/config/team.json"

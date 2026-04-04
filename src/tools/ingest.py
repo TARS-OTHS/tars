@@ -30,12 +30,14 @@ _BLOCKED_NETS = [
 ]
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
 ALLOWED_PATH_ROOTS = (
     Path("/tmp"),
-    Path("/opt/tars-v2/agents"),
-    Path("/opt/tars-v2/data"),
-    Path("/opt/tars-v2/codex"),
-    Path("/opt/tars-v2/skills"),
+    _PROJECT_ROOT / "agents",
+    _PROJECT_ROOT / "data",
+    _PROJECT_ROOT / "codex",
+    _PROJECT_ROOT / "skills",
 )
 
 

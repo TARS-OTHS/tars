@@ -10,9 +10,9 @@ LOG_PREFIX="[exposure-monitor]"
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $LOG_PREFIX $1"; }
 
-# Expected public-facing ports
-# 22=SSH, 53=systemd-resolved, 443=Cloudflare tunnel, 41641+=Tailscale
-EXPECTED_PUBLIC="22 53 443 41641"
+# Expected public-facing ports — adjust for your deployment
+# Common: 22=SSH, 53=DNS, 80=HTTP, 443=HTTPS, 41641=Tailscale
+EXPECTED_PUBLIC="${TARS_EXPECTED_PORTS:-22 80 443}"
 
 ISSUES=""
 

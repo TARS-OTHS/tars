@@ -6,7 +6,9 @@ set -uo pipefail
 
 TARS_HOME="${TARS_HOME:-/opt/tars-v2}"
 DB_PATH="$TARS_HOME/data/memory.db"
-OUTPUT="$TARS_HOME/agents/tars/MEMORY_CONTEXT.md"
+# Output to first agent dir found, or default to agents/main/
+FIRST_AGENT=$(ls -d "$TARS_HOME"/agents/*/CLAUDE.md 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "$TARS_HOME/agents/main")
+OUTPUT="$FIRST_AGENT/MEMORY_CONTEXT.md"
 
 if [ ! -f "$DB_PATH" ]; then
     echo "Memory DB not found at $DB_PATH"
