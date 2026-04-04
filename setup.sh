@@ -62,12 +62,6 @@ print_step "Installing Python dependencies..."
 uv sync 2>&1 | tail -1
 print_ok "Dependencies installed"
 
-# Git hooks — point to project hooks/ dir for post-commit sync etc.
-if [ -d "$TARS_DIR/hooks" ]; then
-    git config core.hooksPath "$TARS_DIR/hooks"
-    print_ok "Git hooks path set to $TARS_DIR/hooks"
-fi
-
 # Step 2: Discord Bot
 print_header "Step 2: Discord Bot"
 echo "  You need a Discord bot token. If you don't have one:"
