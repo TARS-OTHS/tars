@@ -16,6 +16,7 @@ import getpass
 import json
 import os
 import shutil
+import subprocess
 import sys
 import urllib.request
 import urllib.error
@@ -394,6 +395,10 @@ def step_generate(state: dict):
     _write_yaml("config/config.yaml", config, state)
 
     # --- agents.yaml ---
+    # disallow_builtins blocks Claude Code's built-in file/shell tools for
+    # non-privileged agents. They still have full MCP tool access, but can't
+    # edit code, run shell commands, or write arbitrary files. Privileged
+    # ops/dev agents should remove this block.
     agents = {
         "agents": {
             agent["name"]: {
@@ -403,6 +408,7 @@ def step_generate(state: dict):
                 "llm": {"provider": "claude_code", "model": agent["model"]},
                 "tools": "all",
                 "skills": "all",
+                "disallow_builtins": ["Edit", "Write", "Bash", "MultiEdit"],
                 "routing": {
                     "discord": {
                         "account": bot_name,
@@ -548,6 +554,7 @@ def _add_agent(state: dict):
         "llm": {"provider": "claude_code", "model": model},
         "tools": "all",
         "skills": "all",
+        "disallow_builtins": ["Edit", "Write", "Bash", "MultiEdit"],
         "routing": {
             "discord": {
                 "account": bot_account,
@@ -603,6 +610,34 @@ def _add_bot(state: dict):
     cfg["connectors"]["discord"]["accounts"][bot_name] = {"token_key": vault_key}
     config_path.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False))
     ok(f"Bot '{bot_name}' added to config")
+
+
+def step_browser(state: dict):
+    header("Step 8: Browser Tool (optional)")
+    info("The browse_url tool uses a headless Chromium browser via Playwright")
+    info("to fetch JavaScript-rendered pages. The Python package is already")
+    info("installed; Chromium itself is a separate ~170MB download.")
+    print()
+
+    if not ask_yn("Install Chromium for the browse_url tool now?", default=True):
+        warn("Skipped. browse_url will return an error until you run:")
+        info("    uv run playwright install chromium")
+        return
+
+    # Idempotent: playwright install chromium is a fast no-op if already present.
+    cmd = ["uv", "run", "playwright", "install", "chromium"]
+    try:
+        print()
+        info("Running: " + " ".join(cmd))
+        result = subprocess.run(cmd, check=False)
+        if result.returncode == 0:
+            ok("Chromium installed — browse_url tool is ready.")
+        else:
+            err("Chromium install failed (exit " + str(result.returncode) + ").")
+            info("Run manually later: uv run playwright install chromium")
+    except FileNotFoundError:
+        err("'uv' not found on PATH.")
+        info("Run manually later: uv run playwright install chromium")
 
 
 def step_summary(state: dict):
@@ -698,6 +733,7 @@ def main():
         step_hitl,
         step_generate,
         step_extras,
+        step_browser,
         step_summary,
     ]
 

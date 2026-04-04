@@ -19,6 +19,7 @@ Discord message → Router → Agent Manager → Claude Code CLI → MCP Tools �
 - **Category routing** — route agents to Discord categories, not just channels
 - **Per-agent tool access** — allowlists, denylists, and built-in tool blocking per agent
 - **Media pipeline** — image/video analysis (Gemini), audio transcription (Groq)
+- **Headless browser** — `browse_url` tool renders JS-heavy pages via Playwright + Chromium
 - **Hot reload** — tools and skills update without restarting
 
 ## Quick Start
@@ -30,7 +31,12 @@ uv sync
 uv run python setup.py
 ```
 
-The setup wizard walks you through: vault creation, Discord bot connection, team setup, first agent configuration, and HITL approval settings.
+The setup wizard walks you through: vault creation, Discord bot connection, team setup, first agent configuration, HITL approval settings, and (optionally) downloading headless Chromium for the `browse_url` tool.
+
+> **Note on the browser tool:** `uv sync` installs the Playwright Python package, but the Chromium binary (~170MB) is a separate download. The setup wizard offers to run `playwright install chromium` for you. To install it manually later:
+> ```bash
+> uv run playwright install chromium
+> ```
 
 Then start T.A.R.S:
 
@@ -140,6 +146,7 @@ See [codex/README.md](codex/README.md) for the full guide.
 | **Media** | gemini.py, audio.py, video.py | image/video analysis, transcription | Gemini + Groq API keys |
 | **Cloudflare** | cloudflare.py | zones, dns_list, dns_update | Cloudflare API token |
 | **Notion** | notion.py | search, read, create | Notion API key |
+| **Browser** | ingest.py | read_url, browse_url (headless Chromium via Playwright) | `playwright install chromium` |
 | **System** | ingest.py, tmux.py, builtin.py | skill creation, tmux, inter-agent messaging | Built-in |
 
 Remove a file = remove those tools. Add your own integrations (Shopify, Stripe, GitHub, Slack, etc.) by dropping a `@tool` decorated Python file into `src/tools/`.
