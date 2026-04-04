@@ -1,0 +1,1062 @@
+"""Discord connector — multi-bot, typing indicators, slash commands, no inline buttons."""
+
+import logging
+import time
+from contextlib import asynccontextmanager
+from typing import Any
+
+import discord
+from discord import app_commands
+
+from src.core.base import Attachment, Connector, IncomingMessage, VaultBackend
+
+logger = logging.getLogger(__name__)
+
+# Bot-to-bot loop detection settings
+_BOT_LOOP_WINDOW = 60       # seconds to track interactions
+_BOT_LOOP_MAX_HITS = 5      # max bot-to-bot responses in window before suppressing
+
+
+class DiscordConnector(Connector):
+    """Multi-bot Discord connector with slash command support.
+
+    Each bot account runs its own discord.py Client. Slash commands (skills, status,
+    admin) are auto-registered per bot. No inline buttons, no modals, no components.
+    """
+    name = "discord"
+
+    def __init__(self, config: dict, vault: VaultBackend | None = None):
+        super().__init__(config, vault)
+        self.bots: dict[str, DiscordBot] = {}
+        self._admin_users: list[str] = config.get("admin_users", [])
+        self._command_sync: str = config.get("command_sync", "auto")
+        self._dev_guild: str | None = config.get("dev_guild")
+        # Set by the system after init — agent configs and skills for slash commands
+        self._agent_configs: dict[str, dict] = {}
+        self._skills: dict[str, Any] = {}
+        # Duplicate message detection: channel_id -> (content, timestamp)
+        self._recent_sends: dict[str, tuple[str, float]] = {}
+
+    def set_agent_configs(self, agent_configs: dict[str, dict]) -> None:
+        """Set agent configs so the connector knows which agents route to which bots."""
+        self._agent_configs = agent_configs
+
+    def set_skills(self, skills: dict[str, Any]) -> None:
+        """Set available skills for slash command registration."""
+        self._skills = skills
+
+    async def start(self) -> None:
+        """Start all configured bot accounts."""
+        accounts = self.config.get("accounts", {})
+
+        if not accounts:
+            # Single-bot mode — use top-level token
+            token_key = self.config.get("token_key", "DISCORD_BOT_TOKEN")
+            token = self._resolve_token(token_key)
+            if not token:
+                logger.error("No Discord token found")
+                return
+
+            bot = DiscordBot(
+                account_name="default",
+                connector=self,
+                admin_users=self._admin_users,
+                dev_guild=self._dev_guild,
+            )
+            self.bots["default"] = bot
+            await bot.start(token)
+            return
+
+        # Multi-bot mode
+        for account_name, account_cfg in accounts.items():
+            token_key = account_cfg.get("token_key", f"DISCORD_TOKEN_{account_name.upper()}")
+            token = self._resolve_token(token_key)
+            if not token:
+                logger.error(f"No token for Discord account '{account_name}' (key: {token_key})")
+                continue
+
+            intents_list = account_cfg.get("intents", ["guilds", "guild_messages", "dm_messages", "message_content", "guild_reactions"])
+            max_messages = account_cfg.get("max_messages", 1000)
+
+            bot = DiscordBot(
+                account_name=account_name,
+                connector=self,
+                admin_users=self._admin_users,
+                dev_guild=self._dev_guild,
+                intents_list=intents_list,
+                max_messages=max_messages,
+            )
+            self.bots[account_name] = bot
+            await bot.start(token)
+
+        logger.info(f"Discord connector started with {len(self.bots)} bot(s)")
+
+    async def stop(self) -> None:
+        """Stop all bot accounts."""
+        for name, bot in self.bots.items():
+            logger.info(f"Stopping Discord bot: {name}")
+            await bot.close()
+        self.bots.clear()
+
+    async def send(self, channel_id: str, content: str, **kwargs) -> None:
+        """Send a message to a Discord channel.
+
+        kwargs:
+            reply_to: discord.Message to reply to
+            ephemeral: bool — for interaction responses
+            bot_account: str — which bot to send from (default: first available)
+        """
+        bot_account = kwargs.get("bot_account")
+        reply_to = kwargs.get("reply_to")
+        ephemeral = kwargs.get("ephemeral", False)
+
+        bot = self._get_bot(bot_account)
+        if not bot:
+            logger.error(f"No bot available to send to {channel_id}")
+            return
+
+        # Handle interaction responses (slash commands)
+        if reply_to and isinstance(reply_to, discord.Interaction):
+            await self._send_interaction_response(reply_to, content, ephemeral)
+            return
+
+        # Regular message send
+        channel = bot.client.get_channel(int(channel_id))
+        if not channel:
+            try:
+                channel = await bot.client.fetch_channel(int(channel_id))
+            except discord.NotFound:
+                logger.error(f"Channel {channel_id} not found")
+                return None
+
+        # Check for file attachments in kwargs
+        files = kwargs.get("files")  # list of file paths or discord.File objects
+        discord_files = None
+        if files:
+            import os
+            discord_files = []
+            for f in files:
+                if isinstance(f, discord.File):
+                    discord_files.append(f)
+                elif isinstance(f, (str, Path)):
+                    fpath = Path(f)
+                    if fpath.exists():
+                        discord_files.append(discord.File(str(fpath), filename=fpath.name))
+                    else:
+                        logger.warning(f"File not found for attachment: {fpath}")
+
+        # Auto-mention: when replying to a bot, prepend @mention so they can hear us
+        if reply_to and isinstance(reply_to, discord.Message) and reply_to.author.bot:
+            mention = f"<@{reply_to.author.id}>"
+            if mention not in content:
+                content = f"{mention} {content}"
+
+        # Duplicate detection: don't send the same content to the same channel twice in a row
+        content_for_dedup = content.strip()
+        prev = self._recent_sends.get(channel_id)
+        if prev and prev[0] == content_for_dedup and (time.monotonic() - prev[1]) < 120:
+            logger.warning(f"Suppressing duplicate message to {channel_id}: {content_for_dedup[:80]!r}")
+            return None
+        self._recent_sends[channel_id] = (content_for_dedup, time.monotonic())
+
+        # Split long messages (Discord 2000 char limit)
+        first_msg = None
+        for i, chunk in enumerate(_split_message(content)):
+            # Attach files to the first chunk only
+            send_files = discord_files if (i == 0 and discord_files) else None
+            if reply_to and isinstance(reply_to, discord.Message):
+                try:
+                    sent = await reply_to.reply(chunk, files=send_files)
+                except discord.Forbidden:
+                    logger.warning(f"Cannot reply in channel {channel_id} (missing Read Message History?) — falling back to send")
+                    sent = await channel.send(chunk, files=send_files)
+                reply_to = None  # Only reply to first chunk
+            else:
+                sent = await channel.send(chunk, files=send_files)
+            if first_msg is None:
+                first_msg = sent
+
+        return first_msg
+
+    async def _send_interaction_response(
+        self, interaction: discord.Interaction, content: str, ephemeral: bool
+    ) -> None:
+        """Send response to a slash command interaction."""
+        chunks = _split_message(content)
+
+        if interaction.response.is_done():
+            # Already responded, use followup
+            for chunk in chunks:
+                await interaction.followup.send(chunk, ephemeral=ephemeral)
+        else:
+            # First response
+            await interaction.response.send_message(chunks[0], ephemeral=ephemeral)
+            for chunk in chunks[1:]:
+                await interaction.followup.send(chunk, ephemeral=ephemeral)
+
+    @asynccontextmanager
+    async def typing(self, channel_id: str, **kwargs):
+        """Async context manager that shows typing indicator."""
+        bot_account = kwargs.get("bot_account")
+        channel = None
+
+        # Prefer the specific bot account if given
+        if bot_account and bot_account in self.bots:
+            channel = self.bots[bot_account].client.get_channel(int(channel_id))
+            if not channel:
+                try:
+                    channel = await self.bots[bot_account].client.fetch_channel(int(channel_id))
+                except discord.NotFound:
+                    pass
+
+        # Fallback — find any bot that has access
+        if not channel:
+            for bot in self.bots.values():
+                channel = bot.client.get_channel(int(channel_id))
+                if channel:
+                    break
+
+        if not channel:
+            for bot in self.bots.values():
+                try:
+                    channel = await bot.client.fetch_channel(int(channel_id))
+                    break
+                except discord.NotFound:
+                    continue
+
+        if channel:
+            async with channel.typing():
+                yield
+        else:
+            yield
+
+    def _get_bot(self, account_name: str | None = None) -> "DiscordBot | None":
+        """Get a bot by account name, or the first available."""
+        if account_name and account_name in self.bots:
+            return self.bots[account_name]
+        if self.bots:
+            return next(iter(self.bots.values()))
+        return None
+
+    def _resolve_token(self, key: str) -> str | None:
+        """Resolve a token from vault or environment."""
+        if self.vault:
+            token = self.vault.get(key)
+            if token:
+                return token
+
+        # Fallback to environment (for development)
+        import os
+        return os.environ.get(key)
+
+    def _find_bot_for_agent(self, agent_id: str) -> str | None:
+        """Find which bot account an agent routes through."""
+        agent_cfg = self._agent_configs.get(agent_id, {})
+        routing = agent_cfg.get("routing", {}).get("discord", {})
+        return routing.get("account")
+
+    def get_agent_for_channel(self, channel_id: str, bot_account: str,
+                              category_id: str | None = None) -> str | None:
+        """Find which agent handles messages in this channel from this bot.
+
+        Priority: specific channel > category > wildcard (empty channels list).
+        Wildcard agents are excluded if another bot claims the channel/category.
+        """
+        wildcard_agent = None
+        category_agent = None
+        # Check if any OTHER bot account claims this channel or category
+        other_bot_claims = False
+        for agent_id, agent_cfg in self._agent_configs.items():
+            routing = agent_cfg.get("routing", {}).get("discord", {})
+            account = routing.get("account", "default")
+            if account == bot_account:
+                continue  # Skip own account — check others
+            channels = routing.get("channels", [])
+            categories = routing.get("categories", [])
+            if channels and channel_id in channels:
+                other_bot_claims = True
+                break
+            if category_id and categories and category_id in categories:
+                other_bot_claims = True
+                break
+
+        for agent_id, agent_cfg in self._agent_configs.items():
+            routing = agent_cfg.get("routing", {}).get("discord", {})
+            account = routing.get("account", "default")
+            if account != bot_account:
+                continue
+            channels = routing.get("channels", [])
+            categories = routing.get("categories", [])
+            if channels and channel_id in channels:
+                return agent_id  # Specific channel match — immediate return
+            if category_id and categories and category_id in categories and category_agent is None:
+                category_agent = agent_id
+            if not channels and not categories and wildcard_agent is None:
+                wildcard_agent = agent_id
+
+        # Don't let wildcard agents handle channels claimed by another bot
+        if other_bot_claims:
+            return category_agent
+        return category_agent or wildcard_agent
+
+
+class DiscordBot:
+    """A single Discord bot instance with slash commands."""
+
+    def __init__(
+        self,
+        account_name: str,
+        connector: DiscordConnector,
+        admin_users: list[str],
+        dev_guild: str | None = None,
+        intents_list: list[str] | None = None,
+        max_messages: int = 1000,
+    ):
+        self.account_name = account_name
+        self.connector = connector
+        self.admin_users = admin_users
+        self.dev_guild_id = int(dev_guild) if dev_guild else None
+
+        # Bot-to-bot loop detection: bot_user_id -> [timestamps]
+        self._bot_loop_hits: dict[int, list[float]] = {}
+
+        # Message dedup: ignore replayed messages after Discord RESUME
+        self._seen_message_ids: set[int] = set()
+        self._seen_message_cap = 500  # max IDs to track
+
+        # Build intents
+        intents = discord.Intents.none()
+        for intent_name in (intents_list or ["guilds", "guild_messages", "dm_messages", "message_content"]):
+            setattr(intents, intent_name, True)
+
+        self.client = discord.Client(
+            intents=intents,
+            max_messages=max_messages,
+            member_cache_flags=discord.MemberCacheFlags.none(),
+        )
+        self.tree = app_commands.CommandTree(self.client)
+
+        # Register event handlers
+        self.client.event(self.on_ready)
+        self.client.event(self.on_message)
+        self.client.event(self.on_raw_reaction_add)
+
+    async def start(self, token: str) -> None:
+        """Start the bot (non-blocking — runs in background task)."""
+        self._register_commands()
+
+        import asyncio
+        asyncio.create_task(self.client.start(token), name=f"discord-{self.account_name}")
+        logger.info(f"Discord bot '{self.account_name}' starting...")
+
+    async def close(self) -> None:
+        """Close the bot connection."""
+        await self.client.close()
+
+    async def on_ready(self) -> None:
+        """Called when bot connects to Discord."""
+        logger.info(
+            f"Discord bot '{self.account_name}' ready as {self.client.user} "
+            f"(guilds: {len(self.client.guilds)})"
+        )
+
+        # Sync slash commands with Discord
+        try:
+            if self.dev_guild_id:
+                guild = discord.Object(id=self.dev_guild_id)
+                self.tree.copy_global_to(guild=guild)
+                synced = await self.tree.sync(guild=guild)
+                logger.info(f"Synced {len(synced)} commands to guild {self.dev_guild_id}")
+            else:
+                synced = await self.tree.sync()
+                logger.info(f"Synced {len(synced)} global commands (may take up to 1 hour)")
+        except Exception as e:
+            logger.error(f"Failed to sync commands: {e}")
+
+    async def on_message(self, message: discord.Message) -> None:
+        """Handle incoming Discord messages."""
+        # Ignore own messages
+        if message.author == self.client.user:
+            return
+
+        # Dedup: skip messages already seen (replayed after Discord RESUME)
+        if message.id in self._seen_message_ids:
+            return
+        self._seen_message_ids.add(message.id)
+        if len(self._seen_message_ids) > self._seen_message_cap:
+            # Evict oldest ~half to keep memory bounded
+            to_remove = sorted(self._seen_message_ids)[:self._seen_message_cap // 2]
+            self._seen_message_ids -= set(to_remove)
+
+        # Ignore bot messages unless this bot was @mentioned
+        if message.author.bot:
+            if not (self.client.user and self.client.user in message.mentions):
+                return
+
+            # Loop detection: suppress if this bot has exchanged too many
+            # messages with the same bot in the recent window
+            bot_id = message.author.id
+            now = time.monotonic()
+            hits = self._bot_loop_hits.get(bot_id, [])
+            # Prune old timestamps outside the window
+            hits = [t for t in hits if now - t < _BOT_LOOP_WINDOW]
+            hits.append(now)
+            self._bot_loop_hits[bot_id] = hits
+
+            if len(hits) > _BOT_LOOP_MAX_HITS:
+                logger.warning(
+                    f"[{self.account_name}] Bot-to-bot loop detected with {message.author} "
+                    f"({len(hits)} exchanges in {_BOT_LOOP_WINDOW}s) — suppressing"
+                )
+                return
+
+            logger.info(
+                f"[{self.account_name}] Bot-to-bot message from {message.author} "
+                f"— processing ({len(hits)}/{_BOT_LOOP_MAX_HITS})"
+            )
+
+        # Check if this bot was mentioned (or it's a DM)
+        # Covers both @user mentions and @role mentions for the bot's managed role
+        is_dm = isinstance(message.channel, discord.DMChannel)
+        is_mentioned = self.client.user in message.mentions if self.client.user else False
+        if not is_mentioned and self.client.user:
+            # Check role mentions — Discord auto-creates a managed role for bots
+            bot_role_ids = {r.id for r in message.role_mentions}
+            if message.guild and self.client.user:
+                member = message.guild.get_member(self.client.user.id)
+                if member:
+                    for role in member.roles:
+                        if role.id in bot_role_ids:
+                            is_mentioned = True
+                            break
+
+        # Get routing config for this bot's agents
+        category_id = str(message.channel.category_id) if hasattr(message.channel, 'category_id') and message.channel.category_id else None
+        agent_id = self.connector.get_agent_for_channel(
+            str(message.channel.id), self.account_name, category_id
+        )
+
+        if not agent_id:
+            return
+
+        # Check mentions-only routing
+        agent_cfg = self.connector._agent_configs.get(agent_id, {})
+        routing = agent_cfg.get("routing", {}).get("discord", {})
+        mentions_only = routing.get("mentions", False)
+
+        if mentions_only and not is_mentioned and not is_dm:
+            return
+
+        # Strip the bot mention from the content (both @user and @role mentions)
+        content = message.content
+        if self.client.user:
+            content = content.replace(f"<@{self.client.user.id}>", "").strip()
+            content = content.replace(f"<@!{self.client.user.id}>", "").strip()
+        # Strip role mentions for the bot's role
+        for role in message.role_mentions:
+            content = content.replace(f"<@&{role.id}>", "").strip()
+
+        # Build attachments
+        attachments = [
+            Attachment(
+                filename=a.filename,
+                url=a.url,
+                content_type=a.content_type,
+                size=a.size,
+            )
+            for a in message.attachments
+        ]
+
+        # Emit normalized message
+        await self.connector.emit(IncomingMessage(
+            connector="discord",
+            channel_id=str(message.channel.id),
+            user_id=str(message.author.id),
+            user_name=message.author.display_name,
+            content=content,
+            attachments=attachments,
+            reply_to=str(message.reference.message_id) if message.reference else None,
+            raw=message,
+            bot_account=self.account_name,
+        ))
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        """Handle reactions for HITL approvals."""
+        # Ignore own reactions
+        if payload.user_id == self.client.user.id:
+            return
+
+        # Only process HITL reactions (checkmark or X)
+        emoji = str(payload.emoji)
+        if emoji not in ("✅", "❌"):
+            return
+
+        # Check if there's a HITL gate with pending requests for this message
+        hitl = getattr(self.connector, '_hitl', None)
+        if not hitl:
+            return
+
+        message_id = str(payload.message_id)
+        user_id = str(payload.user_id)
+
+        # Look up pending request by message_id
+        try:
+            async with hitl.db.execute(
+                "SELECT hitl_id FROM hitl_pending WHERE message_id = ? AND status = 'pending'",
+                (message_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+
+            if not row:
+                return
+
+            hitl_id = row[0]
+
+            if emoji == "✅":
+                ok = await hitl.approve(hitl_id, user_id)
+                if ok:
+                    logger.info(f"HITL {hitl_id} approved by {user_id}")
+            elif emoji == "❌":
+                ok = await hitl.deny(hitl_id, user_id)
+                if ok:
+                    logger.info(f"HITL {hitl_id} denied by {user_id}")
+        except Exception as e:
+            logger.error(f"HITL reaction handling failed: {e}", exc_info=True)
+
+    def _register_commands(self) -> None:
+        """Register all slash commands on this bot's command tree."""
+        self._register_status_commands()
+        self._register_admin_commands()
+        self._register_skill_commands()
+
+    # --- Helpers ---
+
+    def _resolve_agent(self, interaction: discord.Interaction) -> str | None:
+        """Resolve agent_id from a slash command interaction (channel + category)."""
+        channel = interaction.channel
+        category_id = (
+            str(channel.category_id)
+            if hasattr(channel, "category_id") and channel.category_id
+            else None
+        )
+        return self.connector.get_agent_for_channel(
+            str(interaction.channel_id), self.account_name, category_id
+        )
+
+    # --- Status commands ---
+
+    def _register_status_commands(self) -> None:
+        """Register built-in status/info commands."""
+
+        @self.tree.command(name="status", description="Show agent status and info")
+        async def cmd_status(interaction: discord.Interaction):
+            agent_id = self._resolve_agent(interaction)
+            if not agent_id:
+                await interaction.response.send_message(
+                    "No agent configured for this channel.", ephemeral=True
+                )
+                return
+
+            # Defer since we might need to gather info
+            from src.core.agent_manager import AgentManager
+            # Access through connector's reference (set during startup)
+            if hasattr(self.connector, '_agent_manager') and self.connector._agent_manager:
+                status = await self.connector._agent_manager.get_agent_status(agent_id)
+                lines = [
+                    f"**{status['display_name']}** (`{agent_id}`)",
+                    f"LLM: `{status['llm_provider']}` / `{status['llm_model']}`",
+                    f"Active sessions: {status['active_sessions']}",
+                    f"Messages handled: {status['total_messages']}",
+                    f"Tools: {', '.join(status['tools']) or 'none'}",
+                ]
+                await interaction.response.send_message("\n".join(lines), ephemeral=True)
+            else:
+                await interaction.response.send_message("Agent manager not available.", ephemeral=True)
+
+        @self.tree.command(name="help", description="List available skills and commands")
+        async def cmd_help(interaction: discord.Interaction):
+            lines = ["**Available Commands:**", ""]
+            lines.append("`/status` — Agent status and info")
+            lines.append("`/stop` — Stop the agent's current task")
+            lines.append("`/model [model]` — View or change the LLM model")
+            lines.append("`/tools` — List available tools")
+            lines.append("`/session [info|reset]` — View or reset session")
+            lines.append("`/recall <query>` — Search agent memory")
+            lines.append("`/help` — This help message")
+            lines.append("")
+
+            skills = self.connector._skills
+            if skills:
+                lines.append("**Skills:**")
+                for skill_name, skill in skills.items():
+                    if ":" in skill_name:
+                        continue  # Skip agent-prefixed skills in global help
+                    params = ""
+                    if skill.parameters:
+                        param_strs = [
+                            f"`{p.name}`{'*' if p.required else ''}"
+                            for p in skill.parameters
+                        ]
+                        params = f" ({', '.join(param_strs)})"
+                    lines.append(f"  `/{skill_name.replace('_', '-')}`{params} — {skill.description}")
+            else:
+                lines.append("*No skills configured.*")
+
+            await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+        @self.tree.command(name="model", description="View or change the LLM model for this agent")
+        @app_commands.describe(model="Model to switch to")
+        @app_commands.choices(model=[
+            app_commands.Choice(name="opus", value="opus"),
+            app_commands.Choice(name="sonnet", value="sonnet"),
+            app_commands.Choice(name="haiku", value="haiku"),
+        ])
+        async def cmd_model(interaction: discord.Interaction, model: str | None = None):
+            agent_id = self._resolve_agent(interaction)
+            if not agent_id:
+                await interaction.response.send_message("No agent in this channel.", ephemeral=True)
+                return
+
+            agent_cfg = self.connector._agent_configs.get(agent_id, {})
+
+            if model is None:
+                # Show current model
+                current = agent_cfg.get("llm", {}).get("model", "unknown")
+                await interaction.response.send_message(
+                    f"**{agent_id}** is using model: `{current}`", ephemeral=True
+                )
+            else:
+                # Change model
+                if not self._is_admin(interaction.user.id):
+                    await interaction.response.send_message("Not authorized.", ephemeral=True)
+                    return
+                agent_cfg.setdefault("llm", {})["model"] = model
+                await interaction.response.send_message(
+                    f"Switched **{agent_id}** to `{model}`.", ephemeral=True
+                )
+
+        @self.tree.command(name="stop", description="Stop the agent's current task")
+        async def cmd_stop(interaction: discord.Interaction):
+            if not self._is_admin(interaction.user.id):
+                await interaction.response.send_message("Not authorized.", ephemeral=True)
+                return
+            agent_id = self._resolve_agent(interaction)
+            if not agent_id:
+                await interaction.response.send_message("No agent in this channel.", ephemeral=True)
+                return
+
+            if hasattr(self.connector, '_agent_manager') and self.connector._agent_manager:
+                result = await self.connector._agent_manager.stop_agent(agent_id)
+                if result["stopped"]:
+                    await interaction.response.send_message(
+                        f"Stopped **{agent_id}**.", ephemeral=False
+                    )
+                else:
+                    await interaction.response.send_message(
+                        result["reason"], ephemeral=True
+                    )
+            else:
+                await interaction.response.send_message("Agent manager not available.", ephemeral=True)
+
+        @self.tree.command(name="hold", description="Interrupt the agent so you can interject — it will resume with your message")
+        async def cmd_hold(interaction: discord.Interaction):
+            if not self._is_admin(interaction.user.id):
+                await interaction.response.send_message("Not authorized.", ephemeral=True)
+                return
+            agent_id = self._resolve_agent(interaction)
+            if not agent_id:
+                await interaction.response.send_message("No agent in this channel.", ephemeral=True)
+                return
+
+            if hasattr(self.connector, '_agent_manager') and self.connector._agent_manager:
+                result = await self.connector._agent_manager.hold_agent(agent_id)
+                if result["held"]:
+                    await interaction.response.send_message(
+                        f"**{agent_id}** paused. Send your message now — it'll resume with full context.",
+                        ephemeral=False
+                    )
+                else:
+                    await interaction.response.send_message(
+                        result["reason"], ephemeral=True
+                    )
+            else:
+                await interaction.response.send_message("Agent manager not available.", ephemeral=True)
+
+        @self.tree.command(name="tools", description="List tools available to the agent in this channel")
+        async def cmd_tools(interaction: discord.Interaction):
+            agent_id = self._resolve_agent(interaction)
+            if not agent_id:
+                await interaction.response.send_message("No agent in this channel.", ephemeral=True)
+                return
+
+            agent_cfg = self.connector._agent_configs.get(agent_id, {})
+            tools = agent_cfg.get("tools", [])
+            if tools == "all":
+                tool_list = "All tools available"
+            elif tools:
+                tool_list = "\n".join(f"  `{t}`" for t in sorted(tools))
+            else:
+                tool_list = "No tools configured"
+
+            blocked = agent_cfg.get("disallow_builtins", [])
+            blocked_str = ", ".join(f"`{b}`" for b in blocked) if blocked else "none"
+
+            await interaction.response.send_message(
+                f"**{agent_id}** tools:\n{tool_list}\n\n"
+                f"Blocked builtins: {blocked_str}",
+                ephemeral=True,
+            )
+
+        @self.tree.command(name="session", description="View or reset the agent session")
+        @app_commands.describe(action="What to do with the session")
+        @app_commands.choices(action=[
+            app_commands.Choice(name="info", value="info"),
+            app_commands.Choice(name="reset", value="reset"),
+        ])
+        async def cmd_session(interaction: discord.Interaction, action: str = "info"):
+            agent_id = self._resolve_agent(interaction)
+            if not agent_id:
+                await interaction.response.send_message("No agent in this channel.", ephemeral=True)
+                return
+
+            if not (hasattr(self.connector, '_agent_manager') and self.connector._agent_manager):
+                await interaction.response.send_message("Agent manager not available.", ephemeral=True)
+                return
+
+            am = self.connector._agent_manager
+
+            if action == "reset":
+                if not self._is_admin(interaction.user.id):
+                    await interaction.response.send_message("Not authorized.", ephemeral=True)
+                    return
+                result = await am.reset_session(agent_id, str(interaction.channel_id))
+                if result.get("reset"):
+                    await interaction.response.send_message(
+                        f"Session reset for **{agent_id}**. Next message starts fresh.",
+                        ephemeral=False,
+                    )
+                else:
+                    await interaction.response.send_message(
+                        result.get("reason", "Failed."), ephemeral=True
+                    )
+            else:
+                # Info
+                import time as _time
+                session = None
+                for s in am.sessions.values():
+                    if s.agent_id == agent_id and s.channel_id == str(interaction.channel_id):
+                        session = s
+                        break
+
+                if not session:
+                    await interaction.response.send_message(
+                        f"No active session for **{agent_id}** in this channel.", ephemeral=True
+                    )
+                    return
+
+                age_mins = int((_time.time() - session.created_at) / 60)
+                running = agent_id in am._running_procs
+                lines = [
+                    f"**{agent_id}** session:",
+                    f"Messages: {session.message_count}",
+                    f"Age: {age_mins} min",
+                    f"CLI session: `{session.cli_session_id or 'none'}`",
+                    f"Currently running: {'yes' if running else 'no'}",
+                ]
+                await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+        @self.tree.command(name="recall", description="Search agent memory")
+        @app_commands.describe(query="What to search for")
+        async def cmd_recall(interaction: discord.Interaction, query: str):
+            agent_id = self._resolve_agent(interaction)
+            if not agent_id:
+                await interaction.response.send_message("No agent in this channel.", ephemeral=True)
+                return
+
+            if not (hasattr(self.connector, '_agent_manager') and self.connector._agent_manager):
+                await interaction.response.send_message("Agent manager not available.", ephemeral=True)
+                return
+
+            await interaction.response.defer(ephemeral=True)
+            am = self.connector._agent_manager
+            memory = am._get_agent_memory(agent_id)
+            if not memory:
+                await interaction.followup.send("No memory backend configured.", ephemeral=True)
+                return
+
+            try:
+                results = await memory.search(agent_id, query, limit=5)
+                if not results:
+                    await interaction.followup.send(f"No results for: `{query}`", ephemeral=True)
+                    return
+
+                lines = [f"**Memory results for:** `{query}`\n"]
+                for r in results:
+                    content = r.get("content", "")[:200]
+                    tags = r.get("tags", "")
+                    lines.append(f"- {content}")
+                    if tags:
+                        lines.append(f"  *tags: {tags}*")
+                await interaction.followup.send("\n".join(lines), ephemeral=True)
+            except Exception as e:
+                await interaction.followup.send(f"Search error: {e}", ephemeral=True)
+
+    # --- Admin commands ---
+
+    def _register_admin_commands(self) -> None:
+        """Register admin-only commands."""
+        admin_group = app_commands.Group(name="admin", description="Admin commands")
+
+        @admin_group.command(name="restart", description="Restart an agent session")
+        @app_commands.describe(agent="Agent to restart (default: this channel's agent)")
+        async def cmd_restart(interaction: discord.Interaction, agent: str | None = None):
+            if not self._is_admin(interaction.user.id):
+                await interaction.response.send_message("Not authorized.", ephemeral=True)
+                return
+
+            agent_id = agent or self.connector.get_agent_for_channel(
+                str(interaction.channel_id), self.account_name
+            )
+            if not agent_id:
+                await interaction.response.send_message("No agent found.", ephemeral=True)
+                return
+
+            # TODO: actually restart the session
+            await interaction.response.send_message(
+                f"Restarting agent `{agent_id}`... *(not yet implemented)*", ephemeral=True
+            )
+
+        @admin_group.command(name="pause", description="Pause an agent")
+        @app_commands.describe(agent="Agent to pause")
+        async def cmd_pause(interaction: discord.Interaction, agent: str | None = None):
+            if not self._is_admin(interaction.user.id):
+                await interaction.response.send_message("Not authorized.", ephemeral=True)
+                return
+            await interaction.response.send_message("Pause not yet implemented.", ephemeral=True)
+
+        @admin_group.command(name="resume", description="Resume a paused agent")
+        @app_commands.describe(agent="Agent to resume")
+        async def cmd_resume(interaction: discord.Interaction, agent: str | None = None):
+            if not self._is_admin(interaction.user.id):
+                await interaction.response.send_message("Not authorized.", ephemeral=True)
+                return
+            await interaction.response.send_message("Resume not yet implemented.", ephemeral=True)
+
+        @admin_group.command(name="sync", description="Re-sync slash commands with Discord")
+        async def cmd_sync(interaction: discord.Interaction):
+            if not self._is_admin(interaction.user.id):
+                await interaction.response.send_message("Not authorized.", ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True)
+            try:
+                if self.dev_guild_id:
+                    guild = discord.Object(id=self.dev_guild_id)
+                    self.tree.copy_global_to(guild=guild)
+                    synced = await self.tree.sync(guild=guild)
+                else:
+                    synced = await self.tree.sync()
+                await interaction.followup.send(
+                    f"Synced {len(synced)} commands.", ephemeral=True
+                )
+            except Exception as e:
+                await interaction.followup.send(f"Sync failed: {e}", ephemeral=True)
+
+        @admin_group.command(name="reload", description="Hot-reload skills, tools, and config")
+        async def cmd_reload(interaction: discord.Interaction):
+            if not self._is_admin(interaction.user.id):
+                await interaction.response.send_message("Not authorized.", ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True)
+            try:
+                from src.core.digest import reload_skills, reload_tools
+                skills_count = reload_skills()
+                tools_count = reload_tools()
+
+                # Update connector's skill reference
+                from src.core.skills import get_all_skills
+                self.connector.set_skills(get_all_skills())
+
+                await interaction.followup.send(
+                    f"Reloaded: {tools_count} tools, {skills_count} skills.\n"
+                    f"Run `/admin sync` to update slash commands.",
+                    ephemeral=True
+                )
+            except Exception as e:
+                await interaction.followup.send(f"Reload failed: {e}", ephemeral=True)
+
+        @admin_group.command(name="reboot", description="Full process restart via systemd")
+        async def cmd_reboot(interaction: discord.Interaction):
+            if not self._is_admin(interaction.user.id):
+                await interaction.response.send_message("Not authorized.", ephemeral=True)
+                return
+            await interaction.response.send_message(
+                "Restarting T.A.R.S via systemd... back in ~3 seconds.", ephemeral=True
+            )
+            import subprocess
+            subprocess.Popen(["sudo", "systemctl", "restart", "tars-v2"])
+
+        self.tree.add_command(admin_group)
+
+    # --- Skill commands ---
+
+    def _register_skill_commands(self) -> None:
+        """Auto-register each skill as a slash command."""
+        skills = self.connector._skills
+        if not skills:
+            return
+
+        for skill_name, skill in skills.items():
+            # Skip agent-prefixed skills
+            if ":" in skill_name:
+                continue
+
+            self._register_single_skill_command(skill)
+
+        logger.info(f"Registered {len([s for s in skills if ':' not in s])} skill commands")
+
+    def _register_single_skill_command(self, skill: Any) -> None:
+        """Register a single skill as a slash command.
+
+        Dynamically builds a callback function with typed parameters so discord.py
+        can introspect the signature and register proper slash command options.
+        """
+        cmd_name = skill.name.replace("_", "-")[:32]  # Discord: max 32 chars, no underscores
+        cmd_desc = (skill.description or f"Run {skill.name} skill")[:100]  # Discord: max 100 chars
+        skill_name = skill.name  # capture for closure
+        connector = self.connector
+
+        # Build parameter annotations and defaults for the callback
+        # discord.py inspects the callback signature to build slash command params
+        param_annotations = {"interaction": discord.Interaction}
+        param_defaults = {}
+        param_descriptions = {}
+
+        type_map = {
+            "string": str,
+            "integer": int,
+            "boolean": bool,
+            "number": float,
+        }
+
+        import re
+        _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+        for p in skill.parameters:
+            if not _SAFE_IDENT.match(p.name):
+                logger.warning(f"Skill {skill.name}: skipping invalid param name {p.name!r}")
+                continue
+            py_type = type_map.get(p.type, str)
+            if not p.required:
+                py_type = py_type | None
+                param_defaults[p.name] = None
+            param_annotations[p.name] = py_type
+            if p.description:
+                param_descriptions[p.name] = p.description
+
+        # Build callback via closure factory — no exec() needed
+        safe_params = [p for p in skill.parameters if _SAFE_IDENT.match(p.name)]
+        kwarg_names = [p.name for p in safe_params]
+
+        def _make_skill_callback(_connector, _skill_name, _kwarg_names):
+            async def _skill_cmd(interaction: discord.Interaction, **kwargs):
+                await interaction.response.defer()
+                await _connector.emit(IncomingMessage(
+                    connector="discord",
+                    channel_id=str(interaction.channel_id),
+                    user_id=str(interaction.user.id),
+                    user_name=interaction.user.display_name,
+                    content="",
+                    raw=interaction,
+                    skill=_skill_name,
+                    skill_params={k: kwargs.get(k) for k in _kwarg_names},
+                ))
+            # Set parameter annotations so discord.py builds the slash command signature
+            annotations = {"interaction": discord.Interaction}
+            for p in safe_params:
+                py_type = type_map.get(p.type, str)
+                annotations[p.name] = py_type if p.required else (py_type | None)
+            _skill_cmd.__annotations__ = annotations
+            # Set defaults for optional params
+            import inspect
+            params = [inspect.Parameter("interaction", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=discord.Interaction)]
+            for p in safe_params:
+                py_type = type_map.get(p.type, str)
+                if p.required:
+                    params.append(inspect.Parameter(p.name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=py_type))
+                else:
+                    params.append(inspect.Parameter(p.name, inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None, annotation=py_type | None))
+            _skill_cmd.__signature__ = inspect.Signature(params)
+            return _skill_cmd
+
+        callback = _make_skill_callback(connector, skill_name, kwarg_names)
+
+        # Add choice decorators
+        if any(p.choices for p in skill.parameters):
+            for p in skill.parameters:
+                if p.choices:
+                    choices = [app_commands.Choice(name=c, value=c) for c in p.choices]
+                    callback = app_commands.choices(**{p.name: choices})(callback)
+
+        # Add descriptions
+        if param_descriptions:
+            callback = app_commands.describe(**param_descriptions)(callback)
+
+        # Create and register the command
+        cmd = app_commands.Command(
+            name=cmd_name,
+            description=cmd_desc,
+            callback=callback,
+        )
+        self.tree.add_command(cmd)
+
+    def _is_admin(self, user_id: int) -> bool:
+        """Check if a user is an admin."""
+        return str(user_id) in self.admin_users
+
+
+# === Helpers ===
+
+def _split_message(content: str, limit: int = 2000) -> list[str]:
+    """Split a message into chunks that fit Discord's character limit."""
+    if len(content) <= limit:
+        return [content]
+
+    chunks = []
+    while content:
+        if len(content) <= limit:
+            chunks.append(content)
+            break
+
+        # Try to split at a newline
+        split_at = content.rfind("\n", 0, limit)
+        if split_at == -1:
+            # Try space
+            split_at = content.rfind(" ", 0, limit)
+        if split_at == -1:
+            # Hard split
+            split_at = limit
+
+        chunks.append(content[:split_at])
+        content = content[split_at:].lstrip("\n")
+
+    return chunks
+
+
+def _skill_type_to_discord(type_str: str) -> discord.AppCommandOptionType:
+    """Map skill parameter types to Discord option types."""
+    mapping = {
+        "string": discord.AppCommandOptionType.string,
+        "integer": discord.AppCommandOptionType.integer,
+        "boolean": discord.AppCommandOptionType.boolean,
+        "number": discord.AppCommandOptionType.number,
+        "user": discord.AppCommandOptionType.user,
+        "channel": discord.AppCommandOptionType.channel,
+    }
+    return mapping.get(type_str, discord.AppCommandOptionType.string)
+
+
+class _noop_typing:
+    """No-op async context manager for when no bot can reach a channel."""
+    async def __aenter__(self):
+        return self
+    async def __aexit__(self, *args):
+        pass

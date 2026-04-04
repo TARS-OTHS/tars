@@ -1,0 +1,203 @@
+"""SQLite storage for sessions, messages, and tool logs.
+
+All conversation state lives here, not in Python memory.
+Agent manager loads history per-request and discards after the LLM call.
+"""
+
+import json
+import logging
+import time
+from pathlib import Path
+
+import aiosqlite
+
+from src.core.base import Message, MessageRole
+
+logger = logging.getLogger(__name__)
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    channel_id TEXT,
+    user_id TEXT,
+    cli_session_id TEXT,
+    created_at REAL DEFAULT (unixepoch()),
+    last_active REAL DEFAULT (unixepoch()),
+    summary TEXT
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    name TEXT,
+    tool_calls TEXT,
+    tool_results TEXT,
+    tokens_used INTEGER,
+    created_at REAL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS tool_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    session_id TEXT,
+    tool_name TEXT NOT NULL,
+    input TEXT,
+    output TEXT,
+    success INTEGER,
+    duration_ms INTEGER,
+    created_at REAL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_tool_log_agent ON tool_log(agent_id, created_at);
+"""
+
+
+class Storage:
+    """Async SQLite storage for T.A.R.S."""
+
+    def __init__(self, db_path: str | Path = "data/tarsclaw.db"):
+        self._db_path = Path(db_path)
+        self._db: aiosqlite.Connection | None = None
+
+    async def init(self) -> None:
+        """Initialize the database and create tables."""
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._db = await aiosqlite.connect(str(self._db_path))
+        await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA synchronous=NORMAL")
+        await self._db.execute("PRAGMA busy_timeout=5000")
+        await self._db.executescript(SCHEMA)
+        await self._db.commit()
+        logger.info(f"Storage initialized: {self._db_path}")
+
+    async def close(self) -> None:
+        """Close the database connection."""
+        if self._db:
+            await self._db.close()
+
+    # --- Sessions ---
+
+    async def get_or_create_session(
+        self, session_id: str, agent_id: str,
+        channel_id: str | None = None, user_id: str | None = None
+    ) -> dict:
+        """Get an existing session or create a new one."""
+        async with self._db.execute(
+            "SELECT id, agent_id, channel_id, user_id, cli_session_id, "
+            "created_at, last_active, summary "
+            "FROM sessions WHERE id = ?", (session_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+
+        if row:
+            await self._db.execute(
+                "UPDATE sessions SET last_active = ? WHERE id = ?",
+                (time.time(), session_id)
+            )
+            await self._db.commit()
+            return {
+                "id": row[0], "agent_id": row[1], "channel_id": row[2],
+                "user_id": row[3], "cli_session_id": row[4],
+                "created_at": row[5], "last_active": row[6], "summary": row[7],
+            }
+
+        now = time.time()
+        await self._db.execute(
+            "INSERT INTO sessions (id, agent_id, channel_id, user_id, created_at, last_active) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, agent_id, channel_id, user_id, now, now)
+        )
+        await self._db.commit()
+        return {
+            "id": session_id, "agent_id": agent_id, "channel_id": channel_id,
+            "user_id": user_id, "cli_session_id": None,
+            "created_at": now, "last_active": now, "summary": None,
+        }
+
+    async def save_cli_session_id(self, session_id: str, cli_session_id: str) -> None:
+        """Persist the Claude Code CLI session ID for --resume across restarts."""
+        await self._db.execute(
+            "UPDATE sessions SET cli_session_id = ? WHERE id = ?",
+            (cli_session_id, session_id)
+        )
+        await self._db.commit()
+
+    async def save_summary(self, session_id: str, summary: str) -> None:
+        """Save a conversation summary for fallback context loading."""
+        await self._db.execute(
+            "UPDATE sessions SET summary = ? WHERE id = ?",
+            (summary, session_id)
+        )
+        await self._db.commit()
+
+    # --- Messages ---
+
+    async def save_message(
+        self, session_id: str, role: str, content: str,
+        name: str | None = None,
+        tool_calls: list[dict] | None = None,
+        tool_results: list[dict] | None = None,
+        tokens_used: int | None = None,
+    ) -> int:
+        """Save a message to the database. Returns the message ID."""
+        cursor = await self._db.execute(
+            "INSERT INTO messages (session_id, role, content, name, tool_calls, tool_results, tokens_used) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id, role, content, name,
+                json.dumps(tool_calls) if tool_calls else None,
+                json.dumps(tool_results) if tool_results else None,
+                tokens_used,
+            )
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def load_history(self, session_id: str, limit: int = 50) -> list[Message]:
+        """Load recent message history for a session.
+
+        Returns the most recent `limit` messages, oldest first.
+        Loaded per-request and discarded after the LLM call — never cached.
+        """
+        async with self._db.execute(
+            "SELECT role, content, name, tool_calls, tool_results FROM "
+            "(SELECT role, content, name, tool_calls, tool_results, created_at "
+            " FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?) "
+            "ORDER BY created_at ASC",
+            (session_id, limit)
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        messages = []
+        for row in rows:
+            role_str, content, name, tc_json, tr_json = row
+            messages.append(Message(
+                role=MessageRole(role_str),
+                content=content,
+                name=name,
+                tool_calls=json.loads(tc_json) if tc_json else None,
+                tool_results=json.loads(tr_json) if tr_json else None,
+            ))
+        return messages
+
+    # --- Tool log ---
+
+    async def log_tool_call(
+        self, agent_id: str, session_id: str | None,
+        tool_name: str, input_data: dict | None,
+        output_data: str | None, success: bool, duration_ms: int,
+    ) -> None:
+        """Log a tool execution to the database."""
+        await self._db.execute(
+            "INSERT INTO tool_log (agent_id, session_id, tool_name, input, output, success, duration_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                agent_id, session_id, tool_name,
+                json.dumps(input_data) if input_data else None,
+                output_data, int(success), duration_ms,
+            )
+        )
+        await self._db.commit()

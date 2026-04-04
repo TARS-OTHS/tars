@@ -1,0 +1,28 @@
+# Rescue Bot — standalone systemd service (unsandboxed)
+# Install: sudo cp config/tars-rescue.service /etc/systemd/system/ && sudo systemctl daemon-reload
+
+[Unit]
+Description=T.A.R.S Rescue Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tars
+Group=tars
+WorkingDirectory=/opt/tars-v2
+ExecStart=/usr/local/bin/uv run python -m src.main --profile rescue
+Restart=on-failure
+RestartSec=10
+Environment=HOME=/home/tars
+Environment=PATH=/home/tars/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# NO sandbox — Rescue Bot needs full system access for dev/ops tasks
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tars-rescue
+
+[Install]
+WantedBy=multi-user.target

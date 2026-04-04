@@ -1,0 +1,54 @@
+tars:
+  name: "T.A.R.S"
+  log_level: info
+  data_dir: ./data
+
+connectors:
+  discord:
+    enabled: true
+    dev_guild: "YOUR_GUILD_ID"
+    accounts:
+      main:
+        token_key: discord-token
+      # Add more bots:
+      # ops:
+      #   token_key: secrets/ops-bot-token
+  telegram:
+    enabled: false
+  http:
+    enabled: false
+    port: 8080
+
+defaults:
+  llm:
+    provider: claude_code
+    model: sonnet
+    max_tokens: 4096
+  session:
+    max_history: 50
+    summarize_after: 30
+  memory:
+    semantic_search: false
+    decay_enabled: false
+    max_results: 10
+
+security:
+  hitl:
+    connector: discord
+    channel: "YOUR_OPS_CHANNEL_ID"
+    approvers: ["YOUR_DISCORD_USER_ID"]
+    timeout: 1800
+    fail_mode: closed
+    poll_interval: 3
+    gated_tools:
+      - send_email
+      - install_mcp
+      # Add any tools that need human approval
+
+  rate_limits:
+    mode: log    # switch to 'enforce' when ready
+    defaults:
+      max_per_hour: 100
+
+admin_users:
+  discord: ["YOUR_DISCORD_USER_ID"]

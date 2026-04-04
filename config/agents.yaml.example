@@ -1,0 +1,30 @@
+agents:
+  main:
+    display_name: "My Agent"
+    description: "Primary agent"
+    project_dir: ./agents/main
+    llm:
+      provider: claude_code
+      model: sonnet
+    tools: all
+    skills: all
+    routing:
+      discord:
+        account: main
+        channels: []          # empty = all channels
+        mentions: true        # only respond when @mentioned
+
+  # Example: privileged ops agent
+  # ops:
+  #   display_name: "Ops Bot"
+  #   description: "System operations agent"
+  #   project_dir: .
+  #   privileged: true
+  #   llm:
+  #     provider: claude_code
+  #     model: opus
+  #   tools: all
+  #   routing:
+  #     discord:
+  #       account: ops
+  #       channels: ["OPS_CHANNEL_ID"]
