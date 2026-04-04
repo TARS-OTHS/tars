@@ -53,7 +53,9 @@ if [ "$zombies" -gt 0 ]; then
 fi
 
 # 8. Clean temp files older than 2 hours
-cleaned=$(find /tmp -name "tars-*" -type f -mmin +120 -delete -print 2>/dev/null | wc -l)
+# Scope to tars-owned files so `-delete` never hits files owned by other
+# users — would exit non-zero under set -euo pipefail and kill the script.
+cleaned=$(find /tmp -maxdepth 1 -name "tars-*" -type f -user tars -mmin +120 -delete -print 2>/dev/null | wc -l)
 if [ "$cleaned" -gt 0 ]; then
     log "Cleaned $cleaned old temp files"
 fi
