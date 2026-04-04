@@ -110,6 +110,23 @@ tools:
 
 Skills become Discord slash commands automatically. See [skills/README.md](skills/README.md) for the full format reference.
 
+## Adding Business Knowledge (Codex)
+
+The `codex/` directory holds stable business knowledge that agents can't get from an API — brand voice, company profile, supplier contacts, processes, strategy docs.
+
+```
+codex/
+├── _index.md          <- Master index (agents read this first)
+├── business/          <- Brand voice, compliance
+├── products/          <- Product info, guidelines
+├── strategy/          <- Playbooks, competitor analysis
+└── processes/         <- SOPs, workflows
+```
+
+Agents reference the codex via their CLAUDE.md. The `_index.md` tells agents what's in the codex vs. what to query from tools, so they don't use stale docs when live data is available.
+
+See [codex/README.md](codex/README.md) for the full guide.
+
 ## Included Tools
 
 | Category | File | Tools | Requires |
@@ -288,6 +305,7 @@ uv run python -m src.main
 | [ROADMAP.md](ROADMAP.md) | Feature roadmap |
 | [SCRIPTS.md](SCRIPTS.md) | All scripts with usage |
 | [skills/README.md](skills/README.md) | Skill format reference |
+| [codex/README.md](codex/README.md) | Business knowledge guide |
 
 ## License
 
