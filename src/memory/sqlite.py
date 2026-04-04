@@ -30,6 +30,17 @@ class SQLiteMemory(MemoryBackend):
         db_path = config.get("path", "data/memory.db")
         model_dir = config.get("model_dir", "data/models/bge-small-en-v1.5")
 
+        # Resolve relative paths against the repo root, not CWD. MCP tool
+        # subprocesses inherit CWD from Claude Code (the agent's project_dir),
+        # which would silently create empty per-agent DBs at
+        # <project_dir>/data/memory.db instead of sharing the real one. See
+        # ARCHITECTURE.md — "All paths must be absolute".
+        repo_root = Path(__file__).resolve().parents[2]
+        if not Path(db_path).is_absolute():
+            db_path = str(repo_root / db_path)
+        if not Path(model_dir).is_absolute():
+            model_dir = str(repo_root / model_dir)
+
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
