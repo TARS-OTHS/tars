@@ -116,12 +116,27 @@ The engine discovers Layer 2 and 3 via env vars:
 - Personal names, Discord IDs, API keys, or any identifying information
 - Client-specific skills, timers, scripts, ETL pipelines
 
+### Development workflow
+
+Direct commits to `main` are blocked by a pre-commit hook. All changes go through feature branches:
+
+```bash
+git checkout -b fix/description        # create branch
+# make changes, test with: sudo systemctl restart tars-v2
+git add <files>
+git commit -m "fix: description"
+git push --no-verify -u origin fix/description
+gh pr create                           # PR for cross-review
+# other install reviews and approves
+# merge via GitHub, then both installs: git checkout main && git pull
+```
+
 ### Commit rules
 
 - All changes require a **PR with cross-review** from maintainers
-- Branch from `main`, PR back to `main`
-- Before committing, verify no personal names, company names, or numeric IDs in code: `grep -rn '[A-Z][a-z]\+[A-Z]' src/ scripts/ skills/` and manually review
-- Never push directly to `main`
+- A pre-commit hook blocks direct commits to `main` — do not bypass with `--no-verify`
+- Before committing, verify no personal names, company names, or numeric IDs in code
+- Never force-push to `main` without explicit approval
 
 ## Key Conventions
 
