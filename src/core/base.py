@@ -120,7 +120,7 @@ class ToolContext:
     """Per-call context passed to tool functions. Discarded after each call."""
     __slots__ = ("agent_id", "session_id", "channel_id", "user_id",
                  "memory", "vault", "registry", "connector_send",
-                 "agent_manager", "inter_agent_depth")
+                 "agent_manager", "inter_agent_depth", "project_dir")
 
     def __init__(self, *, agent_id: str, session_id: str | None = None,
                  channel_id: str | None = None, user_id: str | None = None,
@@ -129,7 +129,8 @@ class ToolContext:
                  registry: Any = None,
                  connector_send: Callable | None = None,
                  agent_manager: Any = None,
-                 inter_agent_depth: int = 0):
+                 inter_agent_depth: int = 0,
+                 project_dir: str | None = None):
         self.agent_id = agent_id
         self.session_id = session_id
         self.channel_id = channel_id
@@ -140,6 +141,7 @@ class ToolContext:
         self.connector_send = connector_send
         self.agent_manager = agent_manager
         self.inter_agent_depth = inter_agent_depth
+        self.project_dir = project_dir
 
 
 # === Skill types ===
