@@ -103,10 +103,7 @@ def setup_logging(level: str = "info") -> None:
 def acquire_lock(profile: str | None = None) -> int:
     """Acquire an exclusive lock file. Exits if another instance is running."""
     suffix = f"-{profile}" if profile else ""
-    # Use overlay data dir if available, otherwise CWD/data
-    overlay = os.environ.get("TARS_OVERLAY")
-    data_base = Path(overlay) / "data" if overlay else Path("data")
-    lock_path = data_base / f"tars{suffix}.lock"
+    lock_path = Path(f"data/tars{suffix}.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
     try:
