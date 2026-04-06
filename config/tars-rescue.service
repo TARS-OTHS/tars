@@ -12,7 +12,7 @@ User=tars
 Group=tars
 WorkingDirectory=/opt/tars-v2
 ExecStart=/usr/local/bin/uv run --no-sync python -m src.main --profile rescue
-Restart=on-failure
+Restart=always
 RestartSec=10
 Environment=HOME=/home/tars
 Environment=PATH=/home/tars/.local/bin:/usr/local/bin:/usr/bin:/bin
