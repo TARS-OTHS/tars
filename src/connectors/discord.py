@@ -277,6 +277,7 @@ class DiscordConnector(Connector):
                 other_bot_claims = True
                 break
 
+        dm_fallback_agent = None
         for agent_id, agent_cfg in self._agent_configs.items():
             routing = agent_cfg.get("routing", {}).get("discord", {})
             account = routing.get("account", "default")
@@ -290,11 +291,14 @@ class DiscordConnector(Connector):
                 category_agent = agent_id
             if not channels and not categories and wildcard_agent is None:
                 wildcard_agent = agent_id
+            # DMs have no category — any agent bound to this bot can handle them
+            if category_id is None and dm_fallback_agent is None:
+                dm_fallback_agent = agent_id
 
         # Don't let wildcard agents handle channels claimed by another bot
         if other_bot_claims:
             return category_agent
-        return category_agent or wildcard_agent
+        return category_agent or wildcard_agent or dm_fallback_agent
 
 
 class DiscordBot:
