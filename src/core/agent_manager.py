@@ -331,9 +331,14 @@ class AgentManager:
                 )
             att_lines.append("</attachments>")
             att_lines.append(
+<<<<<<< Updated upstream
                 "Note: Use the attachment URLs above with gemini_analyze_image "
                 "(for images), gemini_analyze_video (for video), "
                 "transcribe_audio (for audio), or read_url/Bash(curl) to download."
+=======
+                "Note: Use download_file to save attachments locally, then "
+                "Read to view images/PDFs. For audio, use transcribe_audio."
+>>>>>>> Stashed changes
             )
             context_blocks.append("\n".join(att_lines))
 
