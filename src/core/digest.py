@@ -1,10 +1,11 @@
 """Hot-reload and capability ingestion system.
 
-Watches skills/, src/tools/, and config/mcp.yaml for changes.
-Reloads without full restart. Can also ingest from URLs and conversation.
+Watches skills/, src/tools/, and config/mcp.yaml for changes across all layers
+(Core, OTHS, overlay). Reloads without full restart.
 """
 
 import importlib
+import importlib.util
 import logging
 import os
 import time
@@ -18,6 +19,38 @@ from src.core.tools import _tool_registry
 logger = logging.getLogger(__name__)
 
 
+def _build_watch_paths() -> dict[str, Path]:
+    """Build watch paths across all layers: Core, OTHS ($TARS_OTHS), overlay ($TARS_OVERLAY)."""
+    paths: dict[str, Path] = {
+        "skills": Path("skills"),
+        "tools": Path("src/tools"),
+        "mcp_config": Path("config/mcp.yaml"),
+    }
+
+    oths = os.environ.get("TARS_OTHS")
+    if oths:
+        oths_path = Path(oths)
+        for subdir in ("tools", "services"):
+            d = oths_path / subdir
+            if d.is_dir():
+                paths[f"tools_oths_{subdir}"] = d
+        d = oths_path / "skills"
+        if d.is_dir():
+            paths["skills_oths"] = d
+
+    overlay = os.environ.get("TARS_OVERLAY")
+    if overlay:
+        overlay_path = Path(overlay)
+        d = overlay_path / "tools"
+        if d.is_dir():
+            paths["tools_overlay"] = d
+        d = overlay_path / "skills"
+        if d.is_dir():
+            paths["skills_overlay"] = d
+
+    return paths
+
+
 class Digest:
     """Watches for changes and hot-reloads modules."""
 
@@ -26,12 +59,8 @@ class Digest:
         self._mtimes: dict[str, float] = {}
         self._running = False
 
-        # Directories to watch
-        self._watch_paths = {
-            "skills": Path("skills"),
-            "tools": Path("src/tools"),
-            "mcp_config": Path("config/mcp.yaml"),
-        }
+        # Directories to watch (across all layers)
+        self._watch_paths = _build_watch_paths()
 
     async def start(self, on_reload=None):
         """Start the file watcher loop."""
@@ -89,52 +118,113 @@ class Digest:
 
     async def _handle_changes(self, changes: dict[str, list[str]]) -> None:
         """Process detected changes."""
-        if "skills" in changes:
-            count = reload_skills()
-            logger.info(f"Hot-reload: {count} skills reloaded ({changes['skills']})")
+        # Any skills category (core, oths, overlay) triggers full skills reload
+        skills_changed = any(k.startswith("skills") for k in changes)
+        tools_changed = any(k.startswith("tools") for k in changes)
 
-        if "tools" in changes:
+        if skills_changed:
+            count = reload_skills()
+            skills_files = [f for k, v in changes.items() if k.startswith("skills") for f in v]
+            logger.info(f"Hot-reload: {count} skills reloaded ({skills_files})")
+
+        if tools_changed:
             count = reload_tools()
-            logger.info(f"Hot-reload: {count} tools reloaded ({changes['tools']})")
+            tools_files = [f for k, v in changes.items() if k.startswith("tools") for f in v]
+            logger.info(f"Hot-reload: {count} tools reloaded ({tools_files})")
 
         if "mcp_config" in changes:
             logger.info(f"Hot-reload: MCP config changed — reconnect needed")
 
         if self._on_reload:
-            await self._on_reload(changes)
+            # Normalise category names for callback (just "skills" and "tools")
+            normalised = {}
+            for k, v in changes.items():
+                if k.startswith("skills"):
+                    normalised.setdefault("skills", []).extend(v)
+                elif k.startswith("tools"):
+                    normalised.setdefault("tools", []).extend(v)
+                else:
+                    normalised[k] = v
+            await self._on_reload(normalised)
 
 
 def reload_skills() -> int:
-    """Re-scan skills directory and update the registry."""
+    """Re-scan skills directories across all layers and update the registry."""
     _skill_registry.clear()
-    skills = load_skills("skills")
-    return len(skills)
+
+    # Core skills
+    load_skills("skills")
+
+    # OTHS skills
+    oths = os.environ.get("TARS_OTHS")
+    if oths:
+        oths_skills = Path(oths) / "skills"
+        if oths_skills.is_dir():
+            load_skills(oths_skills)
+
+    # Overlay skills
+    overlay = os.environ.get("TARS_OVERLAY")
+    if overlay:
+        overlay_skills = Path(overlay) / "skills"
+        if overlay_skills.is_dir():
+            load_skills(overlay_skills)
+
+    return len(_skill_registry)
 
 
 def reload_tools() -> int:
-    """Re-import all tool modules to pick up new/changed @tool functions."""
-    # Clear existing tools (except builtins that might be imported differently)
+    """Re-import all tool modules across all layers."""
     tool_names_before = set(_tool_registry.keys())
 
-    # Re-import all modules in src/tools/
-    tools_dir = Path("src/tools")
-    for py_file in tools_dir.glob("*.py"):
-        if py_file.name.startswith("_"):
-            continue
-        module_name = f"src.tools.{py_file.stem}"
-        try:
-            if module_name in importlib.sys.modules:
-                importlib.reload(importlib.sys.modules[module_name])
-            else:
-                importlib.import_module(module_name)
-        except Exception as e:
-            logger.error(f"Failed to reload {module_name}: {e}")
+    # Core tools
+    _reload_tools_dir(Path("src/tools"), prefix="src.tools.")
+
+    # OTHS tools
+    oths = os.environ.get("TARS_OTHS")
+    if oths:
+        for subdir in ("tools", "services"):
+            d = Path(oths) / subdir
+            if d.is_dir():
+                _reload_tools_dir(d, prefix=f"tars_oths_{subdir}_")
+
+    # Overlay tools
+    overlay = os.environ.get("TARS_OVERLAY")
+    if overlay:
+        d = Path(overlay) / "tools"
+        if d.is_dir():
+            _reload_tools_dir(d, prefix="tars_overlay_")
 
     new_tools = set(_tool_registry.keys()) - tool_names_before
     if new_tools:
         logger.info(f"New tools discovered: {new_tools}")
 
     return len(_tool_registry)
+
+
+def _reload_tools_dir(tools_dir: Path, prefix: str) -> None:
+    """Re-import all .py files in a tools directory."""
+    for py_file in tools_dir.glob("*.py"):
+        if py_file.name.startswith("_"):
+            continue
+        if prefix.startswith("src."):
+            module_name = f"{prefix}{py_file.stem}"
+        else:
+            module_name = f"{prefix}{py_file.stem}"
+        try:
+            if module_name in importlib.sys.modules:
+                importlib.reload(importlib.sys.modules[module_name])
+            else:
+                if prefix.startswith("src."):
+                    importlib.import_module(module_name)
+                else:
+                    # Layer file — import by file path
+                    spec = importlib.util.spec_from_file_location(module_name, py_file)
+                    if spec and spec.loader:
+                        mod = importlib.util.module_from_spec(spec)
+                        importlib.sys.modules[module_name] = mod
+                        spec.loader.exec_module(mod)
+        except Exception as e:
+            logger.error(f"Failed to reload {module_name}: {e}")
 
 
 def ingest_skill_from_text(name: str, description: str, prompt: str,

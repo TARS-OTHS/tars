@@ -14,10 +14,14 @@ _skill_registry: dict[str, Skill] = {}
 
 
 def load_skills(skills_dir: str | Path = "skills") -> dict[str, Skill]:
-    """Load all skill YAML files from the skills directory."""
+    """Load all skill YAML files from a skills directory.
+
+    Called multiple times during discovery — once per layer (Core, OTHS, overlay).
+    Later calls override earlier entries with the same name.
+    Agent-specific skills (agents/*/skills/) are loaded by the registry, not here.
+    """
     skills_path = Path(skills_dir)
     if not skills_path.exists():
-        logger.info(f"Skills directory {skills_path} does not exist, skipping")
         return {}
 
     loaded = 0
@@ -29,22 +33,8 @@ def load_skills(skills_dir: str | Path = "skills") -> dict[str, Skill]:
         except Exception as e:
             logger.error(f"Failed to load skill {yaml_file}: {e}")
 
-    # Also check for agent-specific skills in agents/*/skills/
-    agents_path = Path("agents")
-    if agents_path.exists():
-        for agent_skills_dir in agents_path.glob("*/skills"):
-            for yaml_file in sorted(agent_skills_dir.glob("*.yaml")):
-                try:
-                    skill = _load_skill_file(yaml_file)
-                    # Prefix with agent name to avoid collisions
-                    agent_name = agent_skills_dir.parent.name
-                    skill.name = f"{agent_name}:{skill.name}"
-                    _skill_registry[skill.name] = skill
-                    loaded += 1
-                except Exception as e:
-                    logger.error(f"Failed to load skill {yaml_file}: {e}")
-
-    logger.info(f"Loaded {loaded} skills")
+    if loaded:
+        logger.info(f"Loaded {loaded} skills from {skills_path}")
     return dict(_skill_registry)
 
 
