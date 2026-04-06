@@ -20,7 +20,7 @@ def _overlay_paths() -> tuple[list[Path], Path | None]:
 
     TARS_OTHS supports colon-separated paths (like $PATH) so clients can
     selectively load tool groups:
-        TARS_OTHS=/opt/tars-oths/amazon:/opt/tars-oths/triage
+        TARS_OTHS=/opt/tars-oths/module_a:/opt/tars-oths/module_b
     """
     oths_raw = os.environ.get("TARS_OTHS", "")
     oths_paths = [Path(p) for p in oths_raw.split(":") if p.strip()]

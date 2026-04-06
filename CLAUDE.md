@@ -93,7 +93,7 @@ This repo is **Layer 1 (Core)** — the open-source engine. It is loaded by all 
 
 ```
 Layer 1: TARS-OTHS/tars     (this repo, public)  — Core engine + generic tools
-Layer 2: TARS-OTHS/oths     (private)            — Domain tools/skills (amazon, triage, coaching)
+Layer 2: TARS-OTHS/oths     (private)            — Domain-specific tools/skills
 Layer 3: TARS-OTHS/<client>  (private)            — Per-deployment config, agents, data
 ```
 
@@ -112,7 +112,7 @@ The engine discovers Layer 2 and 3 via env vars:
 
 - Client agent identities (CLAUDE.md files for specific named agents)
 - Real config files (config.yaml, agents.yaml, team.json with actual data)
-- Domain-specific tools (amazon, triage, coaching) — these go in Layer 2
+- Domain-specific tools — these go in Layer 2
 - Personal names, Discord IDs, API keys, or any identifying information
 - Client-specific skills, timers, scripts, ETL pipelines
 

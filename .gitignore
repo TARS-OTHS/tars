@@ -20,8 +20,6 @@ config/agents.*.yaml
 !config/agents.yaml.example
 config/team.json
 !config/team.json.example
-config/triage.yaml
-!config/triage.yaml.example
 config/mcp.yaml
 
 # Secrets — never commit

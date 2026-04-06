@@ -6,39 +6,18 @@ from src.vault.fernet import FernetVault
 
 KEY_FILE = Path.home() / ".config/tars-vault-key"
 
-# Every secret that T.A.R.S uses — keep this list up to date
+# Common secrets for Core tools — deployments can add their own via "Custom key"
 ALL_KEYS = [
-    # Discord
+    # Discord (one per bot account)
     "discord-token",
-    "secrets/rescue-discord-token",
-    "secrets/test-bot-token",
-    "discord-marketing-token",
-    "secrets/discord-voice-bot-token",
-    "DISCORD_BOT_TOKEN",
     # AI / LLM
     "secrets/gemini-api-key",
     "secrets/groq-api-key",
-    "secrets/elevenlabs-api-key",
-    "secrets/vapi-api-key",
-    "secrets/vapi-assistant-id",
-    "secrets/vapi-public-key",
-    # Google
+    # Google Workspace (OAuth2)
     "secrets/google-api-credentials.json",
-    "secrets/google-mcp-credentials.json",
-    # Amazon Ads
-    "secrets/amazon-ads-client-id",
-    "secrets/amazon-ads-client-secret",
-    "secrets/amazon-ads-refresh-token",
-    "amazon-ads-profile-id",
-    "amazon-ads-profiles",
-    # Amazon SP-API
-    "secrets/amazon-sp-client-id",
-    "secrets/amazon-sp-client-secret",
-    "secrets/amazon-sp-refresh-token",
-    "secrets/amazon-sp-refresh-token-na",
-    # Search
+    # Web search
     "secrets/tavily-api-key",
-    # Services
+    # Integrations
     "secrets/cloudflare-api-token",
     "secrets/notion-api-key",
     "secrets/trello-credentials.json",

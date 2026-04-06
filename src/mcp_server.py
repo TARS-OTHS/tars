@@ -14,6 +14,7 @@ Protocol: MCP (Model Context Protocol) over stdio
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 import urllib.parse
@@ -218,7 +219,7 @@ def build_server(vault: FernetVault, config: dict) -> FastMCP:
 
     mcp = FastMCP(
         "tars-tools",
-        instructions="T.A.R.S tool server. Tools for memory, team, Google, Amazon, Cloudflare, Notion, Discord, Gemini, web search, system management, and more.",
+        instructions="T.A.R.S tool server. Tools for memory, team, productivity, communication, media, web search, system management, and more.",
     )
 
     # Auto-discover all @tool functions via registry
@@ -323,7 +324,10 @@ def _make_middleware_handler(
             rate_limiter.record("mcp-agent", _name)
 
         # --- Execute tool ---
-        ctx = ToolContext(agent_id="mcp-agent", vault=vault, memory=memory)
+        _project_dir_raw = os.environ.get("TARS_PROJECT_DIR")
+        _project_dir = str(Path(_project_dir_raw).resolve()) if _project_dir_raw else None
+        ctx = ToolContext(agent_id="mcp-agent", vault=vault, memory=memory,
+                          project_dir=_project_dir)
         try:
             result = await _td.func(ctx, **kwargs)
             duration_ms = int((time.time() - start_time) * 1000)
