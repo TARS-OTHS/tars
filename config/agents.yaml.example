@@ -1,0 +1,65 @@
+agents:
+  main:
+    display_name: "My Agent"
+    description: "Primary agent"
+    project_dir: ./agents/main
+    llm:
+      provider: claude_code
+      model: sonnet
+    tools: all
+    skills: all
+    # Block Claude Code's built-in file/shell tools. The agent still has full
+    # MCP tool access (memory, web, integrations, browse_url, etc.) but cannot
+    # edit source code, run arbitrary shell commands, or write files directly.
+    # Recommended default for coordinator- and assistant-tier agents.
+    disallow_builtins:
+      - Edit
+      - Write
+      - Bash
+      - MultiEdit
+    routing:
+      discord:
+        account: main
+        channels: []          # empty = all channels
+        mentions: true        # only respond when @mentioned
+
+  # Example: assistant-tier agent with a restricted tool whitelist
+  # assistant:
+  #   display_name: "Helper"
+  #   description: "Operations assistant — read-only access to core tools"
+  #   project_dir: ./agents/assistant
+  #   llm:
+  #     provider: claude_code
+  #     model: sonnet
+  #   tools:
+  #     - memory_search
+  #     - memory_semantic_search
+  #     - memory_store
+  #     - web_search
+  #     - read_url
+  #     - browse_url
+  #   disallow_builtins:
+  #     - Edit
+  #     - Write
+  #     - Bash
+  #     - MultiEdit
+  #   routing:
+  #     discord:
+  #       account: assistant
+  #       categories: ["ADMIN_CATEGORY_ID"]
+  #       mentions: false
+
+  # Example: privileged ops agent (keeps built-in tools for sysadmin work)
+  # ops:
+  #   display_name: "Ops Bot"
+  #   description: "System operations agent"
+  #   project_dir: .
+  #   privileged: true
+  #   llm:
+  #     provider: claude_code
+  #     model: opus
+  #   tools: all
+  #   routing:
+  #     discord:
+  #       account: ops
+  #       channels: ["OPS_CHANNEL_ID"]

@@ -1,0 +1,46 @@
+# T.A.R.S v2 — systemd service template
+
+[Unit]
+Description=T.A.R.S v2 Agent System
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tars
+Group=tars
+WorkingDirectory=/opt/tars-v2
+ExecStart=/usr/local/bin/uv run --no-sync python -m src.main
+Restart=always
+RestartSec=10
+Environment=HOME=/home/tars
+Environment=PATH=/home/tars/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# Sandboxing
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateDevices=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+SystemCallFilter=~@mount @reboot @swap @debug @obsolete @cpu-emulation @raw-io
+CapabilityBoundingSet=
+LockPersonality=true
+RemoveIPC=true
+ReadWritePaths=/opt/tars-v2/data /opt/tars-v2/agents /opt/tars-v2/config /tmp /home/tars/.cache /home/tars/.claude
+ReadOnlyPaths=/opt/tars-v2
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tars-v2
+
+[Install]
+WantedBy=multi-user.target
