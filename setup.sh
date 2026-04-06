@@ -52,10 +52,14 @@ fi
 if command -v claude &>/dev/null; then
     print_ok "Claude Code CLI"
 else
-    print_err "Claude Code CLI not found"
-    echo "  Install: npm install -g @anthropic-ai/claude-code"
-    echo "  Then run: claude login"
-    if ! ask_yn "Continue anyway?"; then exit 1; fi
+    print_step "Installing Claude Code CLI..."
+    curl -fsSL https://claude.ai/install.sh | sh
+    if command -v claude &>/dev/null; then
+        print_ok "Claude Code CLI installed"
+    else
+        print_err "Claude Code CLI installation failed"
+        if ! ask_yn "Continue anyway?"; then exit 1; fi
+    fi
 fi
 
 print_step "Installing Python dependencies..."
