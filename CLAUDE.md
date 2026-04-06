@@ -110,7 +110,7 @@ The engine discovers Layer 2 and 3 via env vars:
 
 ### What does NOT belong in Core
 
-- Client agent identities (CLAUDE.md for specific agents like Talkie, Kai, etc.)
+- Client agent identities (CLAUDE.md files for specific named agents)
 - Real config files (config.yaml, agents.yaml, team.json with actual data)
 - Domain-specific tools (amazon, triage, coaching) — these go in Layer 2
 - Personal names, Discord IDs, API keys, or any identifying information
@@ -118,9 +118,9 @@ The engine discovers Layer 2 and 3 via env vars:
 
 ### Commit rules
 
-- All changes require a **PR with cross-review** from both installs (HQ Engineer + Proflex Rescue Bot)
+- All changes require a **PR with cross-review** from maintainers
 - Branch from `main`, PR back to `main`
-- Before committing, verify: `grep -rn 'Peter\|Saul\|Indu\|Mim\|PROFLEX\|proflex\|341650' src/ scripts/ skills/` returns nothing
+- Before committing, verify no personal names, company names, or numeric IDs in code: `grep -rn '[A-Z][a-z]\+[A-Z]' src/ scripts/ skills/` and manually review
 - Never push directly to `main`
 
 ## Key Conventions
