@@ -191,6 +191,57 @@ async def read_url(ctx: ToolContext, url: str, max_length: int = 10000) -> str:
 
 
 @tool(
+    name="download_file",
+    description="Download a file from a URL to a local temp path. Returns the file path for use with Claude's Read tool (images, PDFs) or other processing.",
+    category="research",
+)
+async def download_file(ctx: ToolContext, url: str, filename: str | None = None) -> str:
+    """Download a file (image, PDF, etc.) from a URL and save it locally.
+
+    Returns the local file path. Use Claude's built-in Read tool to view
+    downloaded images or PDFs.
+    """
+    import tempfile
+
+    err, _resolved_ip = _validate_url(url)
+    if err:
+        return err
+
+    max_size = 50 * 1024 * 1024  # 50 MB limit
+
+    try:
+        req = Request(url, headers={"User-Agent": "T.A.R.S/0.1"})
+        with urlopen(req, timeout=30) as resp:
+            data = resp.read(max_size + 1)
+            if len(data) > max_size:
+                return f"File too large (>{max_size // 1024 // 1024} MB)"
+
+            # Determine filename
+            if not filename:
+                from urllib.parse import unquote
+                path = urlparse(url).path
+                filename = unquote(path.split("/")[-1]) or "download"
+                # Strip query params that got into filename
+                if "?" in filename:
+                    filename = filename.split("?")[0]
+
+            suffix = Path(filename).suffix or ""
+            tmp = tempfile.NamedTemporaryFile(
+                delete=False, suffix=suffix, prefix="tars-dl-",
+                dir="/tmp",
+            )
+            tmp.write(data)
+            tmp.close()
+
+            return f"Downloaded to: {tmp.name} ({len(data)} bytes)"
+
+    except URLError as e:
+        return f"Failed to download: {e}"
+    except Exception as e:
+        return f"Error downloading file: {e}"
+
+
+@tool(
     name="browse_url",
     description="Browse a URL with a full browser — renders JavaScript, handles SPAs and dynamic content",
     category="research",
