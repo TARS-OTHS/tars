@@ -13,8 +13,8 @@
 #   Pinned → immune forever
 set -uo pipefail
 
-TARS_HOME="${TARS_HOME:-/opt/tars-v2}"
-DB_PATH="$TARS_HOME/data/memory.db"
+TARS_HOME="${TARS_HOME:-/opt/tars}"
+DB_PATH="${TARS_DATA_DIR:-$TARS_HOME/data}/memory.db"
 
 if [ ! -f "$DB_PATH" ]; then
     echo "Memory DB not found at $DB_PATH"

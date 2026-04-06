@@ -4,7 +4,7 @@
 # Runs on HOST every 6 hours via cron.
 set -euo pipefail
 
-TARS_HOME="${TARS_HOME:-/opt/tars-v2}"
+TARS_HOME="${TARS_HOME:-/opt/tars}"
 source "$TARS_HOME/scripts/lib-alert.sh"
 LOG_PREFIX="[container-health]"
 

@@ -34,9 +34,11 @@ def _resolve_config_dirs() -> list[Path]:
         p = Path(overlay) / "config"
         if p.is_dir():
             dirs.append(p)
-    oths = os.environ.get("TARS_OTHS")
-    if oths:
-        p = Path(oths) / "config"
+    oths_raw = os.environ.get("TARS_OTHS", "")
+    for oths in oths_raw.split(":"):
+        if not oths.strip():
+            continue
+        p = Path(oths.strip()) / "config"
         if p.is_dir():
             dirs.append(p)
     dirs.append(Path("config"))
@@ -101,7 +103,10 @@ def setup_logging(level: str = "info") -> None:
 def acquire_lock(profile: str | None = None) -> int:
     """Acquire an exclusive lock file. Exits if another instance is running."""
     suffix = f"-{profile}" if profile else ""
-    lock_path = Path(f"data/tars{suffix}.lock")
+    # Use overlay data dir if available, otherwise CWD/data
+    overlay = os.environ.get("TARS_OVERLAY")
+    data_base = Path(overlay) / "data" if overlay else Path("data")
+    lock_path = data_base / f"tars{suffix}.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
     try:
@@ -136,8 +141,11 @@ async def main() -> None:
     logger.info("Starting T.A.R.S...")
 
     # --- Vault ---
-    vault = FernetVault()
-    vault_path = Path("config/secrets.enc")
+    # Resolve secrets.enc from config dirs (overlay → OTHS → core)
+    config_dirs = _resolve_config_dirs()
+    vault_file = _find_config_file("secrets.enc", config_dirs)
+    vault_path = vault_file if vault_file else Path("config/secrets.enc")
+    vault = FernetVault(vault_path=str(vault_path))
     if vault_path.exists():
         # Try key file first (for systemd), then interactive prompt
         key_file = Path(os.environ.get("TARS_VAULT_KEY_FILE", "~/.config/tars-vault-key")).expanduser()

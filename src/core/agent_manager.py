@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -89,9 +90,16 @@ class AgentManager:
         """
         resolved: dict[str, Path] = {}
         privileged: set[str] = set()
+        overlay = os.environ.get("TARS_OVERLAY")
         for agent_id, cfg in self.agent_configs.items():
             project_dir = cfg.get("project_dir", f"./agents/{agent_id}")
-            resolved[agent_id] = Path(project_dir).resolve()
+            path = Path(project_dir).resolve()
+            # In three-layer deployments, agents live in the overlay
+            if not path.is_dir() and overlay:
+                overlay_dir = Path(overlay) / "agents" / agent_id
+                if overlay_dir.is_dir():
+                    path = overlay_dir.resolve()
+            resolved[agent_id] = path
             if cfg.get("privileged", False):
                 privileged.add(agent_id)
 
@@ -177,9 +185,24 @@ class AgentManager:
         return get_tools_for_agent(tool_names)
 
     def _get_project_dir(self, agent_id: str) -> str:
-        """Get the project directory for an agent."""
+        """Get the project directory for an agent.
+
+        Resolution: if the configured path exists, use it directly.
+        Otherwise, check $TARS_OVERLAY/agents/<id> as a fallback
+        (agents live in the overlay in three-layer deployments).
+        """
         agent_cfg = self.agent_configs[agent_id]
-        return agent_cfg.get("project_dir", f"./agents/{agent_id}")
+        project_dir = agent_cfg.get("project_dir", f"./agents/{agent_id}")
+        resolved = Path(project_dir).resolve()
+        if resolved.is_dir():
+            return project_dir
+        # Try overlay
+        overlay = os.environ.get("TARS_OVERLAY")
+        if overlay:
+            overlay_dir = Path(overlay) / "agents" / agent_id
+            if overlay_dir.is_dir():
+                return str(overlay_dir)
+        return project_dir  # Return original (may fail, but logs will show why)
 
     def _build_system_prompt(self, agent_id: str) -> str:
         """Build the system prompt for an agent.

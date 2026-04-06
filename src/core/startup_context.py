@@ -8,13 +8,27 @@ session inherit context via Claude Code's --resume.
 
 import json
 import logging
+import os
 from pathlib import Path
+
+from src.core.base import resolve_config_file, PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-TEAM_FILE = PROJECT_ROOT / "config" / "team.json"
-CODEX_INDEX = PROJECT_ROOT / "codex" / "_index.md"
+TEAM_FILE = resolve_config_file("team.json")
+
+
+def _resolve_codex_index() -> Path:
+    """Find codex index: overlay agents/<agent>/codex/ → core codex/."""
+    overlay = os.environ.get("TARS_OVERLAY")
+    if overlay:
+        p = Path(overlay) / "codex" / "_index.md"
+        if p.exists():
+            return p
+    return PROJECT_ROOT / "codex" / "_index.md"
+
+
+CODEX_INDEX = _resolve_codex_index()
 
 
 def _build_team_summary() -> str | None:

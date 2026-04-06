@@ -6,8 +6,8 @@ set -euo pipefail
 echo "Rolling back to root..."
 
 # Stop system service
-systemctl stop tars-v2.service 2>/dev/null || true
-systemctl disable tars-v2.service 2>/dev/null || true
+systemctl stop tars.service 2>/dev/null || true
+systemctl disable tars.service 2>/dev/null || true
 pkill -f "python -m src.main" 2>/dev/null || true
 sleep 2
 
@@ -21,7 +21,7 @@ chmod 644 /opt/tars-v2/data/*.db 2>/dev/null || true
 chmod 755 /opt/tars-v2/data
 
 # Re-enable user-level service
-systemctl --user enable tars-v2.service 2>/dev/null || true
-systemctl --user start tars-v2.service 2>/dev/null || true
+systemctl --user enable tars.service 2>/dev/null || true
+systemctl --user start tars.service 2>/dev/null || true
 
 echo "Rolled back. TARS running as root via user-level service."

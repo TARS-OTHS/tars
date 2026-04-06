@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Install all T.A.R.S systemd timers.
-# Run as root: sudo bash /opt/tars-v2/scripts/install-timers.sh
+# Run as root: sudo bash /opt/tars/scripts/install-timers.sh
 set -euo pipefail
 
-TIMER_DIR="/opt/tars-v2/config/timers"
+TIMER_DIR="/opt/tars/config/timers"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: Must run as root (sudo)"

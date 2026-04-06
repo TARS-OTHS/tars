@@ -1,14 +1,39 @@
 """Base interfaces for all T.A.R.S modules."""
 
+import os
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, AsyncContextManager, AsyncIterator, Callable, Awaitable
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Project root — directory containing src/
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def resolve_config_file(name: str) -> Path:
+    """Find a config file across layers: overlay → OTHS → core.
+
+    Returns the first matching file, or the core path as fallback.
+    """
+    overlay = os.environ.get("TARS_OVERLAY")
+    if overlay:
+        p = Path(overlay) / "config" / name
+        if p.exists():
+            return p
+    oths_raw = os.environ.get("TARS_OTHS", "")
+    for oths in oths_raw.split(":"):
+        if not oths.strip():
+            continue
+        p = Path(oths.strip()) / "config" / name
+        if p.exists():
+            return p
+    return PROJECT_ROOT / "config" / name
 
 
 # === Messages ===

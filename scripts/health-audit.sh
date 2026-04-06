@@ -4,7 +4,7 @@
 # Alerts to Discord if issues found. Runs every 6 hours via cron.
 set -euo pipefail
 
-TARS_HOME="${TARS_HOME:-/opt/tars-v2}"
+TARS_HOME="${TARS_HOME:-/opt/tars}"
 source "$TARS_HOME/scripts/lib-alert.sh"
 LOG_PREFIX="[health-audit]"
 
@@ -13,12 +13,12 @@ log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $LOG_PREFIX $1"; }
 ISSUES=""
 
 # 1. TARS v2 service running (system-level since service-account migration)
-if ! systemctl is-active tars-v2.service >/dev/null 2>&1; then
-    ISSUES="${ISSUES}\n- **tars-v2.service**: NOT RUNNING"
+if ! systemctl is-active tars.service >/dev/null 2>&1; then
+    ISSUES="${ISSUES}\n- **tars.service**: NOT RUNNING"
 fi
 
 # 2. Memory DB exists and is readable
-DB_PATH="$TARS_HOME/data/memory.db"
+DB_PATH="${TARS_DATA_DIR:-$TARS_HOME/data}/memory.db"
 if [ -f "$DB_PATH" ]; then
     count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "ERROR")
     if [ "$count" = "ERROR" ]; then
