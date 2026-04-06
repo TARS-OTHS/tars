@@ -116,6 +116,7 @@ class Registry:
         """Import a single .py file by absolute path. @tool decorators fire on import."""
         module_name = f"tars_{label}_{py_file.stem}"
         existing_tools = set(_tool_registry.keys())
+        existing_tool_ids = {name: id(obj) for name, obj in _tool_registry.items()}
 
         try:
             spec = importlib.util.spec_from_file_location(module_name, py_file)
@@ -124,8 +125,15 @@ class Registry:
                 sys.modules[module_name] = mod
                 spec.loader.exec_module(mod)
 
-                # Check for tool name collisions and log
-                new_tools = set(_tool_registry.keys()) - existing_tools
+                # Check for new tools and overrides
+                current_tools = set(_tool_registry.keys())
+                new_tools = current_tools - existing_tools
+                # Tools that existed before import AND still exist = potential overrides.
+                # We snapshot ids before/after to detect actual re-registration.
+                overridden = {name for name in existing_tools
+                              if id(_tool_registry.get(name)) != existing_tool_ids.get(name)}
+                if overridden:
+                    logger.warning(f"[{label}] {py_file.name} overrides existing tools: {overridden}")
                 if new_tools:
                     logger.info(f"[{label}] Loaded tools from {py_file.name}: {new_tools}")
 
