@@ -1,0 +1,16 @@
+name: example_skill
+description: An example skill — copy this to create your own
+parameters:
+  - name: topic
+    type: string
+    required: true
+    description: What to work on
+  - name: depth
+    type: string
+    choices: [brief, detailed, comprehensive]
+    required: false
+prompt: |
+  Analyse {topic} at a {depth} level. Search memory for relevant context first.
+tools:
+  - web_search
+  - memory_search

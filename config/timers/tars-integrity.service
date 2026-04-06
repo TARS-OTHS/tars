@@ -1,0 +1,12 @@
+[Unit]
+Description=T.A.R.S File Integrity Monitoring
+After=tars.service
+
+[Service]
+Type=oneshot
+User=tars
+Group=tars
+WorkingDirectory=/opt/tars
+ExecStart=/opt/tars/scripts/monitor-integrity.sh
+StandardOutput=append:/var/log/tars-security.log
+StandardError=append:/var/log/tars-security.log
