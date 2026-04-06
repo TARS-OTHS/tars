@@ -20,30 +20,67 @@ from src.vault.fernet import FernetVault
 logger = logging.getLogger("tars")
 
 
+def _resolve_config_dirs() -> list[Path]:
+    """Return config directories in priority order (highest-priority first).
+
+    Resolution order:
+      1. $TARS_OVERLAY/config/  — client overlay (wins on conflict)
+      2. $TARS_OTHS/config/     — OTHS proprietary layer
+      3. ./config/              — Core defaults / examples
+    """
+    dirs: list[Path] = []
+    overlay = os.environ.get("TARS_OVERLAY")
+    if overlay:
+        p = Path(overlay) / "config"
+        if p.is_dir():
+            dirs.append(p)
+    oths = os.environ.get("TARS_OTHS")
+    if oths:
+        p = Path(oths) / "config"
+        if p.is_dir():
+            dirs.append(p)
+    dirs.append(Path("config"))
+    return dirs
+
+
+def _find_config_file(name: str, config_dirs: list[Path]) -> Path | None:
+    """Find first matching config file across config dirs (highest-priority first)."""
+    for d in config_dirs:
+        f = d / name
+        if f.exists():
+            return f
+    return None
+
+
 def load_config(profile: str | None = None) -> dict:
     """Load all YAML config files.
 
     If profile is set (e.g. 'test'), loads config.test.yaml and agents.test.yaml
     instead of the defaults. Falls back to default files if profile files don't exist.
+
+    Config resolution walks: $TARS_OVERLAY/config → $TARS_OTHS/config → ./config
+    (first file found wins).
     """
-    config_dir = Path("config")
+    config_dirs = _resolve_config_dirs()
     suffix = f".{profile}" if profile else ""
 
-    main_file = config_dir / f"config{suffix}.yaml"
-    if not main_file.exists():
-        main_file = config_dir / "config.yaml"
+    main_file = _find_config_file(f"config{suffix}.yaml", config_dirs)
+    if not main_file:
+        main_file = _find_config_file("config.yaml", config_dirs)
     main_config = {}
-    if main_file.exists():
+    if main_file:
         with open(main_file) as f:
             main_config = yaml.safe_load(f) or {}
+        logger.info(f"Config loaded from {main_file}")
 
-    agents_file = config_dir / f"agents{suffix}.yaml"
-    if not agents_file.exists():
-        agents_file = config_dir / "agents.yaml"
+    agents_file = _find_config_file(f"agents{suffix}.yaml", config_dirs)
+    if not agents_file:
+        agents_file = _find_config_file("agents.yaml", config_dirs)
     agents_config = {}
-    if agents_file.exists():
+    if agents_file:
         with open(agents_file) as f:
             agents_config = yaml.safe_load(f) or {}
+        logger.info(f"Agents loaded from {agents_file}")
 
     return {
         **main_config,
@@ -120,6 +157,15 @@ async def main() -> None:
     else:
         # Dev mode — load from .env
         vault.unlock_from_env()
+
+    # Export GitHub token from vault so agents that shell out to `gh` or `git`
+    # pick it up via the standard env vars. Passed through to Claude Code
+    # subprocesses via the env allowlist in src/llm/claude_code.py.
+    gh_token = vault.get("github-token")
+    if gh_token:
+        os.environ["GH_TOKEN"] = gh_token
+        os.environ["GITHUB_TOKEN"] = gh_token
+        logger.info("GitHub token loaded from vault")
 
     # --- Storage ---
     data_dir = config.get("tars", {}).get("data_dir", "./data")

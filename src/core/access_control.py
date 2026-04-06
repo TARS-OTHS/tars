@@ -11,7 +11,7 @@ Layer 3 — Agent ceiling     (agents.yaml — tools, disallow_builtins)
 
 People tiers (from team.json "access" field):
   owner   — message all agents, full tools
-  admin   — message coordinator + assistant, safe tools + existing HITL, no CLI builtins
+  admin   — message privileged + coordinator + assistant, safe tools + existing HITL, Edit/Write allowed, Bash blocked
   staff   — message assistant only, safe tools only, no CLI builtins
   unknown — message nobody, no tools
 
@@ -35,7 +35,7 @@ TEAM_FILE = Path(__file__).resolve().parent.parent.parent / "config" / "team.jso
 # Which people tiers can message which agent tiers
 _MESSAGE_RULES: dict[str, set[str]] = {
     "owner": {"privileged", "coordinator", "assistant"},
-    "admin": {"coordinator", "assistant"},
+    "admin": {"privileged", "coordinator", "assistant"},
     "staff": {"assistant"},
     "unknown": set(),
 }
@@ -292,11 +292,13 @@ class AccessControl:
         """Return Claude Code built-in tool names to block for this sender.
 
         Owner: no blocks (agent's own disallow_builtins still applies).
-        Admin: blocked (admin uses MCP tools only, no CLI builtins).
-        Staff/agent/unknown: blocked.
+        Admin: Edit/Write/MultiEdit allowed, Bash blocked.
+        Staff/agent/unknown: all CLI builtins blocked.
         """
         tier = self.resolve_tier(user_id, is_bot)
         if tier == "owner":
             return []
-        # Everyone else: no CLI builtins
+        if tier == "admin":
+            return ["Bash"]
+        # Staff, agent, unknown: no CLI builtins
         return ["Edit", "Write", "Bash", "MultiEdit"]
