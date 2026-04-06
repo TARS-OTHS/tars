@@ -25,7 +25,7 @@ def load_skills(skills_dir: str | Path = "skills") -> dict[str, Skill]:
         return {}
 
     loaded = 0
-    for yaml_file in sorted(skills_path.glob("*.yaml")):
+    for yaml_file in sorted(skills_path.glob("**/*.yaml")):
         try:
             skill = _load_skill_file(yaml_file)
             _skill_registry[skill.name] = skill
@@ -48,18 +48,30 @@ def _load_skill_file(path: Path) -> Skill:
 
     params = []
     if "parameters" in data:
-        for param_name, param_def in data["parameters"].items():
-            if isinstance(param_def, str):
-                # Shorthand: just a type
-                params.append(SkillParam(name=param_name, type=param_def))
-            elif isinstance(param_def, dict):
+        raw_params = data["parameters"]
+        if isinstance(raw_params, list):
+            # List format: [{name: topic, type: string, ...}, ...]
+            for item in raw_params:
                 params.append(SkillParam(
-                    name=param_name,
-                    type=param_def.get("type", "string"),
-                    description=param_def.get("description", ""),
-                    required=param_def.get("required", False),
-                    choices=param_def.get("choices"),
+                    name=item["name"],
+                    type=item.get("type", "string"),
+                    description=item.get("description", ""),
+                    required=item.get("required", False),
+                    choices=item.get("choices"),
                 ))
+        elif isinstance(raw_params, dict):
+            # Dict format: {topic: {type: string, ...}, ...}
+            for param_name, param_def in raw_params.items():
+                if isinstance(param_def, str):
+                    params.append(SkillParam(name=param_name, type=param_def))
+                elif isinstance(param_def, dict):
+                    params.append(SkillParam(
+                        name=param_name,
+                        type=param_def.get("type", "string"),
+                        description=param_def.get("description", ""),
+                        required=param_def.get("required", False),
+                        choices=param_def.get("choices"),
+                    ))
 
     return Skill(
         name=data["name"],
