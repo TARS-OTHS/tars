@@ -87,6 +87,42 @@ find /opt/tars-v2 -not -user tars 2>/dev/null
 
 Zero output = clean. Any output = run `sudo chown -R tars:tars <paths>` on the listed files.
 
+## Three-Layer Architecture
+
+This repo is **Layer 1 (Core)** — the open-source engine. It is loaded by all deployments.
+
+```
+Layer 1: TARS-OTHS/tars     (this repo, public)  — Core engine + generic tools
+Layer 2: TARS-OTHS/oths     (private)            — Domain tools/skills (amazon, triage, coaching)
+Layer 3: TARS-OTHS/<client>  (private)            — Per-deployment config, agents, data
+```
+
+The engine discovers Layer 2 and 3 via env vars:
+- `TARS_OTHS` — colon-separated paths to Layer 2 module directories
+- `TARS_OVERLAY` — path to the Layer 3 overlay directory
+
+### What belongs in Core (this repo)
+
+- Framework code: `src/core/`, `src/connectors/`, `src/llm/`, `src/memory/`, `src/vault/`, `src/auth/`
+- Generic tools usable by any deployment: memory, team, web, browser, google, trello, notion, cloudflare, discord, gemini, audio, video, tmux, ingest
+- Generic skills, MCP server, setup wizard, scripts, timers
+- Example configs only (`config/*.example`, `agents/main/CLAUDE.md.example`)
+
+### What does NOT belong in Core
+
+- Client agent identities (CLAUDE.md for specific agents like Talkie, Kai, etc.)
+- Real config files (config.yaml, agents.yaml, team.json with actual data)
+- Domain-specific tools (amazon, triage, coaching) — these go in Layer 2
+- Personal names, Discord IDs, API keys, or any identifying information
+- Client-specific skills, timers, scripts, ETL pipelines
+
+### Commit rules
+
+- All changes require a **PR with cross-review** from both installs (HQ Engineer + Proflex Rescue Bot)
+- Branch from `main`, PR back to `main`
+- Before committing, verify: `grep -rn 'Peter\|Saul\|Indu\|Mim\|PROFLEX\|proflex\|341650' src/ scripts/ skills/` returns nothing
+- Never push directly to `main`
+
 ## Key Conventions
 
 - **Modules are files** — drop a .py in the right folder, it's available. No imports to add, no registry to update.
