@@ -10,12 +10,12 @@ import json
 import logging
 from pathlib import Path
 
-from src.core.base import ToolContext
+from src.core.base import ToolContext, resolve_config_file
 from src.core.tools import tool
 
 logger = logging.getLogger(__name__)
 
-TEAM_FILE = Path(__file__).resolve().parent.parent.parent / "config" / "team.json"
+TEAM_FILE = resolve_config_file("team.json")
 
 
 def _load_team() -> dict:

@@ -4,10 +4,15 @@
 # Run every 30 minutes via cron.
 set -uo pipefail
 
-TARS_HOME="${TARS_HOME:-/opt/tars-v2}"
-DB_PATH="$TARS_HOME/data/memory.db"
-# Output to first agent dir found, or default to agents/main/
-FIRST_AGENT=$(ls -d "$TARS_HOME"/agents/*/CLAUDE.md 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "$TARS_HOME/agents/main")
+TARS_HOME="${TARS_HOME:-/opt/tars}"
+DB_PATH="${TARS_DATA_DIR:-$TARS_HOME/data}/memory.db"
+# Output to first agent dir found — check overlay first, then core
+TARS_OVERLAY="${TARS_OVERLAY:-}"
+if [ -n "$TARS_OVERLAY" ] && ls -d "$TARS_OVERLAY"/agents/*/CLAUDE.md >/dev/null 2>&1; then
+    FIRST_AGENT=$(ls -d "$TARS_OVERLAY"/agents/*/CLAUDE.md | head -1 | xargs dirname)
+else
+    FIRST_AGENT=$(ls -d "$TARS_HOME"/agents/*/CLAUDE.md 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "$TARS_HOME/agents/main")
+fi
 OUTPUT="$FIRST_AGENT/MEMORY_CONTEXT.md"
 
 if [ ! -f "$DB_PATH" ]; then

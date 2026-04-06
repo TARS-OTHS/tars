@@ -27,16 +27,19 @@ def _build_watch_paths() -> dict[str, Path]:
         "mcp_config": Path("config/mcp.yaml"),
     }
 
-    oths = os.environ.get("TARS_OTHS")
-    if oths:
-        oths_path = Path(oths)
+    oths_raw = os.environ.get("TARS_OTHS", "")
+    for oths in oths_raw.split(":"):
+        if not oths.strip():
+            continue
+        oths_path = Path(oths.strip())
+        oths_label = oths_path.name
         for subdir in ("tools", "services"):
             d = oths_path / subdir
             if d.is_dir():
-                paths[f"tools_oths_{subdir}"] = d
+                paths[f"tools_oths_{oths_label}_{subdir}"] = d
         d = oths_path / "skills"
         if d.is_dir():
-            paths["skills_oths"] = d
+            paths[f"skills_oths_{oths_label}"] = d
 
     overlay = os.environ.get("TARS_OVERLAY")
     if overlay:
@@ -156,9 +159,11 @@ def reload_skills() -> int:
     load_skills("skills")
 
     # OTHS skills
-    oths = os.environ.get("TARS_OTHS")
-    if oths:
-        oths_skills = Path(oths) / "skills"
+    oths_raw = os.environ.get("TARS_OTHS", "")
+    for oths in oths_raw.split(":"):
+        if not oths.strip():
+            continue
+        oths_skills = Path(oths.strip()) / "skills"
         if oths_skills.is_dir():
             load_skills(oths_skills)
 
@@ -180,12 +185,16 @@ def reload_tools() -> int:
     _reload_tools_dir(Path("src/tools"), prefix="src.tools.")
 
     # OTHS tools
-    oths = os.environ.get("TARS_OTHS")
-    if oths:
+    oths_raw = os.environ.get("TARS_OTHS", "")
+    for oths in oths_raw.split(":"):
+        if not oths.strip():
+            continue
+        oths_path = Path(oths.strip())
+        oths_label = oths_path.name
         for subdir in ("tools", "services"):
-            d = Path(oths) / subdir
+            d = oths_path / subdir
             if d.is_dir():
-                _reload_tools_dir(d, prefix=f"tars_oths_{subdir}_")
+                _reload_tools_dir(d, prefix=f"tars_oths_{oths_label}_{subdir}_")
 
     # Overlay tools
     overlay = os.environ.get("TARS_OVERLAY")

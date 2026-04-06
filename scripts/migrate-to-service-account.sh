@@ -63,8 +63,8 @@ echo ""
 
 # Step 1: Stop user-level service
 echo "Step 1: Stopping user-level tars-v2 service..."
-systemctl --user stop tars-v2.service 2>/dev/null || true
-systemctl --user disable tars-v2.service 2>/dev/null || true
+systemctl --user stop tars.service 2>/dev/null || true
+systemctl --user disable tars.service 2>/dev/null || true
 # Also kill any stray process
 pkill -f "python -m src.main" 2>/dev/null || true
 sleep 2
@@ -86,22 +86,22 @@ echo -e "${GREEN}  Permissions set.${NC}"
 
 # Step 4: Install system-level service
 echo "Step 4: Installing system-level service..."
-cp "$TARS_DIR/config/tars-v2.service" /etc/systemd/system/tars-v2.service
+cp "$TARS_DIR/config/tars.service" /etc/systemd/system/tars.service
 systemctl daemon-reload
-systemctl enable tars-v2.service
+systemctl enable tars.service
 echo -e "${GREEN}  System service installed and enabled.${NC}"
 
 # Step 5: Start TARS as tars user
 echo "Step 5: Starting T.A.R.S as tars user..."
-systemctl start tars-v2.service
+systemctl start tars.service
 sleep 3
 
-if systemctl is-active --quiet tars-v2.service; then
+if systemctl is-active --quiet tars.service; then
     echo -e "${GREEN}  T.A.R.S is running as tars user.${NC}"
     echo ""
     echo -e "${GREEN}=== Migration complete ===${NC}"
     echo ""
-    systemctl status tars-v2.service --no-pager
+    systemctl status tars.service --no-pager
 else
     echo -e "${RED}  T.A.R.S failed to start. Check logs:${NC}"
     echo "  journalctl -u tars-v2 -n 30 --no-pager"

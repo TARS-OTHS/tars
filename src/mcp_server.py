@@ -414,25 +414,47 @@ def main():
     import os
     import yaml
 
-    # Load config — respect TARS_PROFILE env var for test/prod separation
+    # Load config — respect layers: overlay → OTHS → core
     profile = os.environ.get("TARS_PROFILE", "")
     logger.info(f"MCP server cwd: {os.getcwd()}, TARS_PROFILE={profile!r}")
-    # Use absolute path relative to this file's location (project root)
     project_root = Path(__file__).resolve().parent.parent
+
+    # Build config search dirs (same layer order as main.py)
+    config_dirs: list[Path] = []
+    overlay = os.environ.get("TARS_OVERLAY")
+    if overlay:
+        p = Path(overlay) / "config"
+        if p.is_dir():
+            config_dirs.append(p)
+    oths_raw = os.environ.get("TARS_OTHS", "")
+    for oths in oths_raw.split(":"):
+        if not oths.strip():
+            continue
+        p = Path(oths.strip()) / "config"
+        if p.is_dir():
+            config_dirs.append(p)
+    config_dirs.append(project_root / "config")
+
+    def _find_cfg(name: str) -> Path | None:
+        for d in config_dirs:
+            f = d / name
+            if f.exists():
+                return f
+        return None
+
     suffix = f".{profile}" if profile else ""
-    config_file = project_root / f"config/config{suffix}.yaml"
-    if not config_file.exists():
-        config_file = project_root / "config/config.yaml"
+    config_file = _find_cfg(f"config{suffix}.yaml") or _find_cfg("config.yaml")
 
     config = {}
-    if config_file.exists():
+    if config_file and config_file.exists():
         with open(config_file) as f:
             config = yaml.safe_load(f) or {}
     logger.info(f"MCP server config: {config_file}")
 
-    # Load vault
-    vault = FernetVault(str(project_root / "config/secrets.enc"))
-    vault_path = project_root / "config/secrets.enc"
+    # Load vault — resolve from config dirs
+    vault_file = _find_cfg("secrets.enc")
+    vault_path = vault_file if vault_file else project_root / "config/secrets.enc"
+    vault = FernetVault(str(vault_path))
 
     if vault_path.exists():
         key_file = Path("~/.config/tars-vault-key").expanduser()

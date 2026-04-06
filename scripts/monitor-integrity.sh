@@ -4,7 +4,7 @@
 # Runs on HOST every 12 hours via cron.
 set -euo pipefail
 
-TARS_HOME="${TARS_HOME:-/opt/tars-v2}"
+TARS_HOME="${TARS_HOME:-/opt/tars}"
 source "$TARS_HOME/scripts/lib-alert.sh"
 BASELINE="$TARS_HOME/.security/integrity-baseline.json"
 LOG_PREFIX="[integrity-monitor]"

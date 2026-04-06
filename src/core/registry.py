@@ -15,11 +15,17 @@ from src.core.skills import load_skills, get_all_skills
 logger = logging.getLogger(__name__)
 
 
-def _overlay_paths() -> tuple[Path | None, Path | None]:
-    """Return (oths_path, overlay_path) from env vars, or None if unset."""
-    oths = os.environ.get("TARS_OTHS")
+def _overlay_paths() -> tuple[list[Path], Path | None]:
+    """Return (oths_paths, overlay_path) from env vars.
+
+    TARS_OTHS supports colon-separated paths (like $PATH) so clients can
+    selectively load tool groups:
+        TARS_OTHS=/opt/tars-oths/amazon:/opt/tars-oths/triage
+    """
+    oths_raw = os.environ.get("TARS_OTHS", "")
+    oths_paths = [Path(p) for p in oths_raw.split(":") if p.strip()]
     overlay = os.environ.get("TARS_OVERLAY")
-    return (Path(oths) if oths else None, Path(overlay) if overlay else None)
+    return (oths_paths, Path(overlay) if overlay else None)
 
 
 class Registry:
@@ -27,7 +33,7 @@ class Registry:
 
     Discovery order (last loaded wins on name collision):
       1. Core: src/tools/, src/connectors/, etc.
-      2. OTHS: $TARS_OTHS/tools/, $TARS_OTHS/connectors/
+      2. OTHS: $TARS_OTHS paths (colon-separated) — tools/, connectors/, services/
       3. Overlay: $TARS_OVERLAY/tools/, $TARS_OVERLAY/connectors/
     """
 
@@ -39,7 +45,7 @@ class Registry:
 
     def discover(self) -> None:
         """Auto-discover all modules from Core, OTHS, and overlay layers."""
-        oths_path, overlay_path = _overlay_paths()
+        oths_paths, overlay_path = _overlay_paths()
 
         # --- Layer 1: Core packages ---
         self._scan_package("src.tools")
@@ -49,9 +55,9 @@ class Registry:
         self._scan_package("src.vault")
         self._scan_package("src.apis")
 
-        # --- Layer 2: OTHS ---
-        if oths_path:
-            self._scan_layer(oths_path, "oths")
+        # --- Layer 2: OTHS (multiple paths supported) ---
+        for oths_path in oths_paths:
+            self._scan_layer(oths_path, f"oths:{oths_path.name}")
 
         # --- Layer 3: Client overlay ---
         if overlay_path:
@@ -62,7 +68,7 @@ class Registry:
 
         # Load skills: Core → OTHS → overlay (last wins)
         load_skills("skills")
-        if oths_path:
+        for oths_path in oths_paths:
             oths_skills = oths_path / "skills"
             if oths_skills.is_dir():
                 load_skills(oths_skills)

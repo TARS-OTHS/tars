@@ -25,7 +25,10 @@ class FernetVault(VaultBackend):
     """Fernet-encrypted credential vault."""
     name = "fernet"
 
-    def __init__(self, vault_path: str | Path = "config/secrets.enc"):
+    def __init__(self, vault_path: str | Path | None = None):
+        if vault_path is None:
+            from src.core.base import resolve_config_file
+            vault_path = resolve_config_file("secrets.enc")
         self._vault_path = Path(vault_path)
         self._salt_path = self._vault_path.with_suffix(".salt")
         self._secrets: dict[str, str] = {}

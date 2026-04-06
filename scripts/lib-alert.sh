@@ -1,9 +1,9 @@
 #!/bin/bash
 # Shared alert helper for T.A.R.S v2 cron scripts.
 # Sources Discord bot token from Fernet vault via Python helper.
-# Usage: source /opt/tars-v2/scripts/lib-alert.sh
+# Usage: source /opt/tars/scripts/lib-alert.sh
 
-TARS_HOME="${TARS_HOME:-/opt/tars-v2}"
+TARS_HOME="${TARS_HOME:-/opt/tars}"
 TARS_VENV="$TARS_HOME/.venv/bin/python"
 ALERT_CHANNEL="${TARS_ALERT_CHANNEL:-}"  # set via config/channels.env
 
