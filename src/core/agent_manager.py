@@ -331,9 +331,8 @@ class AgentManager:
                 )
             att_lines.append("</attachments>")
             att_lines.append(
-                "Note: Use the attachment URLs above with gemini_analyze_image, "
-                "gemini_analyze_video, or download via Bash(curl) for processing. "
-                "For audio files, use transcribe_audio tool."
+                "Note: Use download_file to save attachments locally, then "
+                "Read to view images/PDFs. For audio, use transcribe_audio."
             )
             context_blocks.append("\n".join(att_lines))
 
