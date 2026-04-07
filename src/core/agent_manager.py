@@ -368,6 +368,7 @@ class AgentManager:
             user_content = f"{injected}\n\n{user_content}"
 
         # Skill invocation — render skill prompt
+        # Skills start fresh (no --resume) to avoid stale context from prior conversations.
         if message.skill:
             skill = get_skill(message.skill)
             if skill:
@@ -375,6 +376,9 @@ class AgentManager:
                 user_content = f"[Skill: {skill.name}]\n{skill_prompt}"
                 if message.content:
                     user_content += f"\n\nUser message: {message.content}"
+                # Force fresh CLI session — skills are self-contained and should not
+                # carry context from previous conversations in the channel.
+                session.cli_session_id = None
             else:
                 await connector.send(
                     message.channel_id, f"Unknown skill: {message.skill}",
@@ -387,7 +391,8 @@ class AgentManager:
             stored = await self.storage.get_or_create_session(
                 session.id, agent_id, message.channel_id, message.user_id
             )
-            if stored.get("cli_session_id") and not session.cli_session_id:
+            # Don't restore CLI session for skill invocations — they run fresh
+            if stored.get("cli_session_id") and not session.cli_session_id and not message.skill:
                 session.cli_session_id = stored["cli_session_id"]
                 logger.debug(f"Restored CLI session {session.cli_session_id} from storage")
 
