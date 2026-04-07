@@ -135,7 +135,7 @@ async def trello_cards(ctx: ToolContext, board_id: str, list_id: str = "") -> st
         endpoint = f"/boards/{board_id}/cards"
 
     result = await _trello_api(ctx, endpoint, params={
-        "fields": "name,desc,due,labels,url,idList,dateLastActivity",
+        "fields": "id,name,desc,due,labels,url,shortLink,idList,dateLastActivity",
     })
 
     if isinstance(result, dict) and "error" in result:
@@ -153,7 +153,8 @@ async def trello_cards(ctx: ToolContext, board_id: str, list_id: str = "") -> st
         activity_str = f" (updated: {activity})" if activity else ""
         desc_preview = c.get("desc", "")[:80]
         desc_str = f"\n    {desc_preview}..." if desc_preview else ""
-        lines.append(f"  - {c['name']}{due}{label_str}{activity_str}{desc_str}")
+        card_id = c.get("id", "?")
+        lines.append(f"  - [{card_id}] {c['name']}{due}{label_str}{activity_str}{desc_str}")
     return "\n".join(lines)
 
 
