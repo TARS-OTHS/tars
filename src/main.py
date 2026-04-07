@@ -174,7 +174,7 @@ async def main() -> None:
 
     # --- Storage ---
     data_dir = config.get("tars", {}).get("data_dir", "./data")
-    storage = Storage(db_path=f"{data_dir}/tarsclaw.db")
+    storage = Storage(db_path=f"{data_dir}/tars.db")
     await storage.init()
 
     # --- Auto-discover modules ---

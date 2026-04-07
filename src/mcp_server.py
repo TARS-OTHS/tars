@@ -168,7 +168,7 @@ def _init_tool_log(data_dir: str) -> "sqlite3.Connection | None":
     import sqlite3
     import os
     os.makedirs(data_dir, exist_ok=True)
-    db_path = os.path.join(data_dir, "tarsclaw.db")
+    db_path = os.path.join(data_dir, "tars.db")
     try:
         conn = sqlite3.connect(db_path)
         conn.execute("""
