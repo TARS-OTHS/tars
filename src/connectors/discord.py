@@ -981,7 +981,7 @@ class DiscordBot:
         safe_params = [p for p in skill.parameters if _SAFE_IDENT.match(p.name)]
         kwarg_names = [p.name for p in safe_params]
 
-        def _make_skill_callback(_connector, _skill_name, _kwarg_names):
+        def _make_skill_callback(_connector, _skill_name, _kwarg_names, _account_name):
             async def _skill_cmd(interaction: discord.Interaction, **kwargs):
                 await interaction.response.defer()
                 await _connector.emit(IncomingMessage(
@@ -991,6 +991,7 @@ class DiscordBot:
                     user_name=interaction.user.display_name,
                     content="",
                     raw=interaction,
+                    bot_account=_account_name,
                     skill=_skill_name,
                     skill_params={k: kwargs.get(k) for k in _kwarg_names},
                 ))
@@ -1012,7 +1013,7 @@ class DiscordBot:
             _skill_cmd.__signature__ = inspect.Signature(params)
             return _skill_cmd
 
-        callback = _make_skill_callback(connector, skill_name, kwarg_names)
+        callback = _make_skill_callback(connector, skill_name, kwarg_names, self.account_name)
 
         # Add choice decorators
         if any(p.choices for p in skill.parameters):
