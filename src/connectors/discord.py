@@ -257,27 +257,13 @@ class DiscordConnector(Connector):
         """Find which agent handles messages in this channel from this bot.
 
         Priority: specific channel > category > wildcard (empty channels list).
-        Wildcard agents are excluded if another bot claims the channel/category.
+        Each bot account is an independent Discord client, so routing is
+        scoped to the bot_account — other bots' claims are irrelevant.
         """
         wildcard_agent = None
         category_agent = None
-        # Check if any OTHER bot account claims this channel or category
-        other_bot_claims = False
-        for agent_id, agent_cfg in self._agent_configs.items():
-            routing = agent_cfg.get("routing", {}).get("discord", {})
-            account = routing.get("account", "default")
-            if account == bot_account:
-                continue  # Skip own account — check others
-            channels = routing.get("channels", [])
-            categories = routing.get("categories", [])
-            if channels and channel_id in channels:
-                other_bot_claims = True
-                break
-            if category_id and categories and category_id in categories:
-                other_bot_claims = True
-                break
-
         dm_fallback_agent = None
+
         for agent_id, agent_cfg in self._agent_configs.items():
             routing = agent_cfg.get("routing", {}).get("discord", {})
             account = routing.get("account", "default")
@@ -295,9 +281,6 @@ class DiscordConnector(Connector):
             if category_id is None and dm_fallback_agent is None:
                 dm_fallback_agent = agent_id
 
-        # Don't let wildcard agents handle channels claimed by another bot
-        if other_bot_claims:
-            return category_agent
         return category_agent or wildcard_agent or dm_fallback_agent
 
 
