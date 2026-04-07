@@ -247,3 +247,34 @@ async def trello_create_card(ctx: ToolContext, list_id: str, name: str,
         return f"Failed to create card: {result['error']}"
 
     return f"Card created: {result.get('name', name)} — {result.get('url', '')}"
+
+
+@tool(name="trello_archive_card", description="Archive (close) a Trello card", category="trello", hitl=True)
+async def trello_archive_card(ctx: ToolContext, card_id: str) -> str:
+    """Archive a Trello card. Requires HITL approval.
+
+    Args:
+        card_id: ID of the card to archive
+    """
+    result = await _trello_api(ctx, f"/cards/{card_id}", method="PUT",
+                               params={"closed": "true"})
+
+    if isinstance(result, dict) and "error" in result:
+        return f"Failed to archive card: {result['error']}"
+
+    return f"Card archived: {result.get('name', card_id)}"
+
+
+@tool(name="trello_delete_card", description="Permanently delete a Trello card", category="trello", hitl=True)
+async def trello_delete_card(ctx: ToolContext, card_id: str) -> str:
+    """Permanently delete a Trello card. This cannot be undone. Requires HITL approval.
+
+    Args:
+        card_id: ID of the card to delete
+    """
+    result = await _trello_api(ctx, f"/cards/{card_id}", method="DELETE")
+
+    if isinstance(result, dict) and "error" in result:
+        return f"Failed to delete card: {result['error']}"
+
+    return f"Card deleted permanently."
