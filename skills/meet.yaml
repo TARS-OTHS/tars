@@ -20,8 +20,13 @@ prompt: |
   Attendees: {attendees}
   Duration: {duration}
 
-  If no topic was given, use "Quick Meeting". If attendees were given as names, resolve their emails from the team roster if possible. If no duration given, default to 60.
+  If no topic was given, use "Quick Meeting". If no duration given, default to 60.
+
+  IMPORTANT: Only invite attendees that the user explicitly listed. Do NOT add anyone the user did not name. If no attendees were specified, pass an empty attendees string — do not guess or auto-invite anyone.
+
+  If attendees were given as names (not emails), resolve their emails from the team roster via memory_search. If you cannot find an email, tell the user rather than guessing.
 
   Call meet_create with the appropriate parameters. Share the Meet join link in your response. That's it — nothing else.
 tools:
   - meet_create
+  - memory_search

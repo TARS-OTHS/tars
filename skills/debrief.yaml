@@ -37,12 +37,7 @@ prompt: |
   For any action that is vague or missing details (who, what, when), ask the user to clarify. Do NOT proceed until confirmed.
 
   **Step 4 — Assign and route**
-  Recommend an owner for each action:
-  - **Peter** — strategic decisions, supplier relationships, approvals
-  - **Kyle** — business development, partnerships
-  - **Rakhee / Diya** — admin, Amazon ops, customer service, scheduling
-  - **T.A.R.S** — automated tasks, monitoring, reminders, research
-  - **Rescue Bot** — technical/development tasks only
+  Look up the team roster using memory_search (search for "team" or "roster") to find team members and their roles. Recommend an owner for each action based on their responsibilities. If no roster is found, ask the user who should own each action.
 
   Ask the user to confirm or reassign.
 
