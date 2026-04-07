@@ -295,9 +295,12 @@ class DiscordConnector(Connector):
             if category_id is None and dm_fallback_agent is None:
                 dm_fallback_agent = agent_id
 
-        # Don't let wildcard agents handle channels claimed by another bot
-        if other_bot_claims:
-            return category_agent
+        # Don't let wildcard agents handle channels claimed by another bot,
+        # UNLESS the wildcard agent requires mentions (no conflict — explicit @mention only)
+        if other_bot_claims and wildcard_agent:
+            wildcard_routing = self._agent_configs.get(wildcard_agent, {}).get("routing", {}).get("discord", {})
+            if not wildcard_routing.get("mentions", False):
+                wildcard_agent = None  # Block non-mention wildcards from claimed channels
         return category_agent or wildcard_agent or dm_fallback_agent
 
 
