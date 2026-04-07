@@ -33,3 +33,6 @@ agents/*/CLAUDE.md
 agents/*/.mcp.json
 agents/*/.claude/
 !agents/main/CLAUDE.md.example
+
+# Runtime security baselines — deployment-specific
+.security/
