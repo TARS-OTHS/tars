@@ -174,6 +174,337 @@ async def calendar_create(
     return f"Event created: {summary} ({result.get('htmlLink', '')})"
 
 
+# === Google Meet ===
+
+@tool(name="meet_create", description="Create an instant or scheduled Google Meet with a join link", category="google", hitl=True)
+async def meet_create(
+    ctx: ToolContext, summary: str = "Quick Meeting",
+    attendees: str = "", duration_minutes: int = 60,
+    start: str = "", description: str = ""
+) -> str:
+    """Create a Google Calendar event with an auto-generated Google Meet link.
+
+    Args:
+        summary: Meeting title
+        attendees: Comma-separated email addresses (optional)
+        duration_minutes: Meeting duration in minutes (default 60)
+        start: Start time in ISO 8601 (optional — defaults to now for instant meetings)
+        description: Meeting description/agenda (optional)
+    """
+    from datetime import datetime, timezone, timedelta
+    import re
+    import uuid
+
+    # --- Input validation ---
+    if duration_minutes < 1 or duration_minutes > 480:
+        return "duration_minutes must be between 1 and 480"
+
+    if len(summary) > 200:
+        return "Meeting summary too long (max 200 characters)"
+
+    if attendees:
+        email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+        for email in (e.strip() for e in attendees.split(",") if e.strip()):
+            if not email_re.match(email):
+                return f"Invalid email address: {email}"
+
+    if description and len(description) > 2000:
+        return "Description too long (max 2000 characters)"
+
+    if start:
+        start_dt = start
+        try:
+            dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            end_dt = (dt + timedelta(minutes=duration_minutes)).isoformat()
+        except ValueError:
+            return "Invalid start time format. Use ISO 8601 (e.g. 2025-01-15T14:00:00Z)"
+    else:
+        now = datetime.now(timezone.utc)
+        start_dt = now.isoformat()
+        end_dt = (now + timedelta(minutes=duration_minutes)).isoformat()
+
+    event = {
+        "summary": summary,
+        "start": {"dateTime": start_dt, "timeZone": "UTC"},
+        "end": {"dateTime": end_dt, "timeZone": "UTC"},
+        "conferenceData": {
+            "createRequest": {
+                "requestId": uuid.uuid4().hex,
+                "conferenceSolutionKey": {"type": "hangoutsMeet"},
+            }
+        },
+    }
+
+    if description:
+        event["description"] = description
+    else:
+        event["description"] = "Meeting created by T.A.R.S. Remember to enable recording / Gemini notes if needed."
+
+    if attendees:
+        event["attendees"] = [
+            {"email": e.strip()} for e in attendees.split(",") if e.strip()
+        ]
+
+    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1"
+    result = await _google_api(ctx, url, method="POST", data=event)
+
+    if "error" in result:
+        return f"Failed to create meeting: {result['error']}"
+
+    meet_link = ""
+    conf = result.get("conferenceData", {})
+    conference_id = conf.get("conferenceId", "")
+    for ep in conf.get("entryPoints", []):
+        if ep.get("entryPointType") == "video":
+            meet_link = ep.get("uri", "")
+            break
+
+    cal_link = result.get("htmlLink", "")
+    event_id = result.get("id", "")
+    start_str = result.get("start", {}).get("dateTime", start_dt)
+
+    # Store event metadata for later debrief lookup
+    if ctx.memory and event_id:
+        try:
+            await ctx.memory.store(
+                f"meet_event:{event_id}",
+                json.dumps({
+                    "event_id": event_id,
+                    "conference_id": conference_id,
+                    "summary": summary,
+                    "meet_link": meet_link,
+                    "start": start_str,
+                    "channel_id": ctx.channel_id,
+                }),
+                tags=["meet_event", "meeting"],
+            )
+        except Exception:
+            pass  # non-critical
+
+    lines = [
+        f"**{summary}**",
+        f"Meet link: {meet_link}" if meet_link else "No Meet link generated",
+        f"Calendar: {cal_link}" if cal_link else "",
+        f"Start: {start_str}",
+        f"Duration: {duration_minutes} min",
+    ]
+    if attendees:
+        lines.append(f"Invited: {attendees}")
+    if event_id:
+        lines.append(f"Event ID: {event_id}")
+    lines.append("")
+    lines.append("Tip: The host should enable recording and/or Gemini notes once the meeting starts.")
+
+    return "\n".join(line for line in lines if line or line == "")
+
+
+@tool(name="meet_notes", description="Fetch meeting notes or transcript — searches Drive first, falls back to Meet API", category="google")
+async def meet_notes(ctx: ToolContext, meeting_title: str = "", event_id: str = "",
+                     pick: int = 0, hours_back: int = 24) -> str:
+    """Search for meeting notes/transcripts from Google Drive or the Meet API.
+
+    Priority:
+    1. If event_id given, look up stored meeting metadata and match by title
+    2. Search Drive for Gemini notes/transcripts
+    3. Fall back to Google Meet REST API for raw transcripts
+
+    Args:
+        meeting_title: Meeting title to search for (optional — uses most recent if empty)
+        event_id: Calendar event ID from meet_create (optional — auto-matches)
+        pick: If multiple docs found, pick this one (1-indexed). 0 = list all and read newest.
+        hours_back: How far back to look in hours (default 24, max 720)
+    """
+    from datetime import datetime, timezone, timedelta
+    import re
+
+    # --- Input validation ---
+    hours_back = max(1, min(hours_back, 720))
+    pick = max(0, pick)
+    if meeting_title and len(meeting_title) > 200:
+        return "Meeting title too long (max 200 characters)"
+    if event_id and not re.match(r"^[a-zA-Z0-9_-]+$", event_id):
+        return "Invalid event_id format"
+
+    # --- Step 0: Resolve title from stored event metadata ---
+    if event_id and not meeting_title and ctx.memory:
+        try:
+            hits = await ctx.memory.search(f"meet_event:{event_id}", limit=1)
+            if hits:
+                meta = json.loads(hits[0].get("content", "{}"))
+                meeting_title = meta.get("summary", "")
+        except Exception:
+            pass
+
+    if not meeting_title and not event_id and ctx.memory:
+        try:
+            hits = await ctx.memory.search("meet_event:", limit=1, tags=["meet_event"])
+            if hits:
+                meta = json.loads(hits[0].get("content", "{}"))
+                meeting_title = meta.get("summary", "")
+                event_id = meta.get("event_id", "")
+        except Exception:
+            pass
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).isoformat()
+
+    # --- Step 1: Search Google Drive for Gemini notes/transcripts ---
+    q_parts = []
+    if meeting_title:
+        safe_title = meeting_title.replace("\\", "\\\\").replace("'", "\\'")
+        q_parts.append(f"(name contains '{safe_title}' or name contains 'Meeting notes' or name contains 'transcript')")
+    else:
+        q_parts.append("(name contains 'Meeting notes' or name contains 'transcript')")
+
+    q_parts.append(f"modifiedTime > '{cutoff}'")
+    q_parts.append("trashed = false")
+
+    q = " and ".join(q_parts)
+    drive_url = (
+        f"https://www.googleapis.com/drive/v3/files"
+        f"?q={quote(q)}&pageSize=10"
+        f"&fields=files(id,name,mimeType,modifiedTime,webViewLink)"
+        f"&orderBy=modifiedTime desc"
+    )
+    result = await _google_api(ctx, drive_url)
+    drive_files = result.get("files", []) if "error" not in result else []
+
+    # --- Step 2: If no Drive results, try Google Meet REST API ---
+    meet_transcript = ""
+    if not drive_files:
+        meet_transcript = await _fetch_meet_transcript(ctx, meeting_title, hours_back)
+
+    # --- Step 3: Build response ---
+    if not drive_files and not meet_transcript:
+        return (
+            f"No meeting notes or transcripts found in the last {hours_back} hours."
+            + (f" Searched for: {meeting_title}" if meeting_title else "")
+            + "\n\nTip: Make sure Gemini notes were enabled during the meeting, "
+            + "and wait 5-10 minutes after the meeting ends for transcripts to appear."
+        )
+
+    if not drive_files and meet_transcript:
+        return f"**Transcript from Google Meet API:**\n\n{meet_transcript}"
+
+    # Drive docs found — list them
+    lines = [f"**Found {len(drive_files)} meeting document(s):**\n"]
+    for i, f in enumerate(drive_files, 1):
+        lines.append(f"  {i}. {f['name']} — {f.get('webViewLink', f['id'])}")
+
+    # Pick which doc to read
+    if pick > 0 and pick <= len(drive_files):
+        target = drive_files[pick - 1]
+    else:
+        target = drive_files[0]
+
+    content_text = await _read_drive_doc(ctx, target)
+
+    if content_text:
+        if len(content_text) > 8000:
+            content_text = content_text[:8000] + "\n\n... [truncated — full doc linked above]"
+        lines.append(f"\n---\n**Content of {target['name']}:**\n\n{content_text}")
+
+    if len(drive_files) > 1 and pick == 0:
+        lines.append(f"\n*To read a different document, call meet_notes with pick=N (1-{len(drive_files)})*")
+
+    return "\n".join(lines)
+
+
+async def _read_drive_doc(ctx: ToolContext, file_meta: dict) -> str:
+    """Read the text content of a Google Drive document."""
+    import re
+    mime = file_meta.get("mimeType", "")
+    file_id = file_meta.get("id", "")
+
+    # Validate file_id format (alphanumeric, hyphens, underscores only)
+    if not file_id or not re.match(r"^[a-zA-Z0-9_-]+$", file_id):
+        return "(Invalid file ID)"
+
+    if mime == "application/vnd.google-apps.document":
+        export_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/export?mimeType=text/plain"
+    else:
+        export_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+
+    auth = _get_auth(ctx)
+    headers = await auth.get_headers()
+    req = Request(export_url, headers=headers, method="GET")
+    try:
+        with urlopen(req, timeout=30) as resp:
+            return resp.read().decode("utf-8")
+    except (HTTPError, URLError) as e:
+        return f"(Could not read doc content: {e})"
+
+
+async def _fetch_meet_transcript(ctx: ToolContext, meeting_title: str, hours_back: int) -> str:
+    """Fallback: fetch transcript from Google Meet REST API (v2).
+
+    Requires the meetings.space.readonly OAuth scope.
+    Returns empty string if unavailable.
+    """
+    from datetime import datetime, timezone, timedelta
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    url = (
+        f"https://meet.googleapis.com/v2/conferenceRecords"
+        f"?filter=end_time>=\"{quote(cutoff)}\""
+        f"&pageSize=10"
+    )
+    result = await _google_api(ctx, url)
+
+    if "error" in result:
+        logger.debug(f"Meet API unavailable: {result['error']}")
+        return ""
+
+    conferences = result.get("conferenceRecords", [])
+    if not conferences:
+        return ""
+
+    target_conf = conferences[0]
+    conf_name = target_conf.get("name", "")
+    if not conf_name:
+        return ""
+
+    # Validate resource name format to prevent path traversal
+    import re
+    if not re.match(r"^conferenceRecords/[a-zA-Z0-9_-]+$", conf_name):
+        logger.warning(f"Unexpected conferenceRecord name format: {conf_name}")
+        return ""
+
+    transcript_url = f"https://meet.googleapis.com/v2/{conf_name}/transcripts"
+    transcript_result = await _google_api(ctx, transcript_url)
+
+    if "error" in transcript_result:
+        logger.debug(f"No transcripts via Meet API: {transcript_result['error']}")
+        return ""
+
+    transcripts = transcript_result.get("transcripts", [])
+    if not transcripts:
+        return ""
+
+    transcript_name = transcripts[0].get("name", "")
+    if not re.match(r"^conferenceRecords/[a-zA-Z0-9_-]+/transcripts/[a-zA-Z0-9_-]+$", transcript_name):
+        logger.warning(f"Unexpected transcript name format: {transcript_name}")
+        return ""
+
+    entries_url = f"https://meet.googleapis.com/v2/{transcript_name}/entries?pageSize=100"
+    entries_result = await _google_api(ctx, entries_url)
+
+    if "error" in entries_result:
+        return ""
+
+    entries = entries_result.get("transcriptEntries", [])
+    if not entries:
+        return ""
+
+    lines = []
+    for entry in entries:
+        speaker = entry.get("participant", {}).get("displayName", "Unknown")
+        text = entry.get("text", "")
+        if text:
+            lines.append(f"**{speaker}:** {text}")
+
+    return "\n".join(lines)
+
+
 # === Google Drive ===
 
 @tool(name="drive_search", description="Search Google Drive files", category="google")
