@@ -192,7 +192,24 @@ async def meet_create(
         description: Meeting description/agenda (optional)
     """
     from datetime import datetime, timezone, timedelta
+    import re
     import uuid
+
+    # --- Input validation ---
+    if duration_minutes < 1 or duration_minutes > 480:
+        return "duration_minutes must be between 1 and 480"
+
+    if len(summary) > 200:
+        return "Meeting summary too long (max 200 characters)"
+
+    if attendees:
+        email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+        for email in (e.strip() for e in attendees.split(",") if e.strip()):
+            if not email_re.match(email):
+                return f"Invalid email address: {email}"
+
+    if description and len(description) > 2000:
+        return "Description too long (max 2000 characters)"
 
     if start:
         start_dt = start
@@ -295,9 +312,18 @@ async def meet_notes(ctx: ToolContext, meeting_title: str = "", event_id: str = 
         meeting_title: Meeting title to search for (optional — uses most recent if empty)
         event_id: Calendar event ID from meet_create (optional — auto-matches)
         pick: If multiple docs found, pick this one (1-indexed). 0 = list all and read newest.
-        hours_back: How far back to look in hours (default 24)
+        hours_back: How far back to look in hours (default 24, max 720)
     """
     from datetime import datetime, timezone, timedelta
+    import re
+
+    # --- Input validation ---
+    hours_back = max(1, min(hours_back, 720))
+    pick = max(0, pick)
+    if meeting_title and len(meeting_title) > 200:
+        return "Meeting title too long (max 200 characters)"
+    if event_id and not re.match(r"^[a-zA-Z0-9_-]+$", event_id):
+        return "Invalid event_id format"
 
     # --- Step 0: Resolve title from stored event metadata ---
     if event_id and not meeting_title and ctx.memory:
@@ -385,8 +411,13 @@ async def meet_notes(ctx: ToolContext, meeting_title: str = "", event_id: str = 
 
 async def _read_drive_doc(ctx: ToolContext, file_meta: dict) -> str:
     """Read the text content of a Google Drive document."""
+    import re
     mime = file_meta.get("mimeType", "")
     file_id = file_meta.get("id", "")
+
+    # Validate file_id format (alphanumeric, hyphens, underscores only)
+    if not file_id or not re.match(r"^[a-zA-Z0-9_-]+$", file_id):
+        return "(Invalid file ID)"
 
     if mime == "application/vnd.google-apps.document":
         export_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/export?mimeType=text/plain"
@@ -432,6 +463,12 @@ async def _fetch_meet_transcript(ctx: ToolContext, meeting_title: str, hours_bac
     if not conf_name:
         return ""
 
+    # Validate resource name format to prevent path traversal
+    import re
+    if not re.match(r"^conferenceRecords/[a-zA-Z0-9_-]+$", conf_name):
+        logger.warning(f"Unexpected conferenceRecord name format: {conf_name}")
+        return ""
+
     transcript_url = f"https://meet.googleapis.com/v2/{conf_name}/transcripts"
     transcript_result = await _google_api(ctx, transcript_url)
 
@@ -444,6 +481,10 @@ async def _fetch_meet_transcript(ctx: ToolContext, meeting_title: str, hours_bac
         return ""
 
     transcript_name = transcripts[0].get("name", "")
+    if not re.match(r"^conferenceRecords/[a-zA-Z0-9_-]+/transcripts/[a-zA-Z0-9_-]+$", transcript_name):
+        logger.warning(f"Unexpected transcript name format: {transcript_name}")
+        return ""
+
     entries_url = f"https://meet.googleapis.com/v2/{transcript_name}/entries?pageSize=100"
     entries_result = await _google_api(ctx, entries_url)
 
