@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_tool_log_agent ON tool_log(agent_id, created_at);
 class Storage:
     """Async SQLite storage for T.A.R.S."""
 
-    def __init__(self, db_path: str | Path = "data/tarsclaw.db"):
+    def __init__(self, db_path: str | Path = "data/tars.db"):
         self._db_path = Path(db_path)
         self._db: aiosqlite.Connection | None = None
 
