@@ -443,6 +443,7 @@ class DiscordBot:
         mentions_only = routing.get("mentions", False)
 
         if mentions_only and not is_mentioned and not is_dm:
+            logger.debug(f"[{self.account_name}] Skipping — mentions_only and not mentioned")
             return
 
         # Strip the bot mention from the content (both @user and @role mentions)
