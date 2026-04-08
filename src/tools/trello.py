@@ -179,7 +179,7 @@ async def trello_activity(ctx: ToolContext, board_id: str, days: int = 3, limit:
         "filter": "createCard,updateCard,moveCardToBoard,moveCardFromBoard,commentCard,addMemberToCard,addAttachmentToCard",
         "limit": str(limit),
         "since": since,
-        "fields": "type,date,memberCreator",
+        "fields": "type,date,data,memberCreator",
         "member_fields": "fullName,username",
         "memberCreator_fields": "fullName,username",
     })
