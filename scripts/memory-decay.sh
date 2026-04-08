@@ -13,7 +13,7 @@
 #   Pinned → immune forever
 set -uo pipefail
 
-TARS_HOME="${TARS_HOME:-/opt/tars}"
+TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
 DB_PATH="${TARS_DATA_DIR:-$TARS_HOME/data}/memory.db"
 
 if [ ! -f "$DB_PATH" ]; then

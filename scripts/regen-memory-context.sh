@@ -4,7 +4,7 @@
 # Run every 30 minutes via cron.
 set -uo pipefail
 
-TARS_HOME="${TARS_HOME:-/opt/tars}"
+TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
 DB_PATH="${TARS_DATA_DIR:-$TARS_HOME/data}/memory.db"
 # Output to first agent dir found — check overlay first, then core
 TARS_OVERLAY="${TARS_OVERLAY:-}"

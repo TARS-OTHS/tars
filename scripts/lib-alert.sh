@@ -3,7 +3,7 @@
 # Sources Discord bot token from Fernet vault via Python helper.
 # Usage: source /opt/tars/scripts/lib-alert.sh
 
-TARS_HOME="${TARS_HOME:-/opt/tars}"
+TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
 TARS_VENV="$TARS_HOME/.venv/bin/python"
 ALERT_CHANNEL="${TARS_ALERT_CHANNEL:-}"  # set via config/channels.env
 
