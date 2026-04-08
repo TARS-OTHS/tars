@@ -4,7 +4,7 @@
 # Runs on HOST daily via cron.
 set -euo pipefail
 
-TARS_HOME="${TARS_HOME:-/opt/tars}"
+TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
 source "$TARS_HOME/scripts/lib-alert.sh"
 LOG_PREFIX="[exposure-monitor]"
 
