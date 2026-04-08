@@ -279,3 +279,69 @@ async def trello_delete_card(ctx: ToolContext, card_id: str) -> str:
         return f"Failed to delete card: {result['error']}"
 
     return f"Card deleted permanently."
+
+
+@tool(name="trello_card_detail", description="Get full details of a Trello card — description, comments, checklists, due date, labels, members", category="trello")
+async def trello_card_detail(ctx: ToolContext, card_id: str) -> str:
+    """Get complete card info including comments and checklists.
+
+    Args:
+        card_id: ID of the card
+    """
+    result = await _trello_api(ctx, f"/cards/{card_id}", params={
+        "fields": "name,desc,due,dueComplete,closed,labels,url",
+        "members": "true",
+        "member_fields": "fullName",
+        "checklists": "all",
+        "checklist_fields": "name",
+        "checkItems": "all",
+        "checkItem_fields": "name,state",
+    })
+
+    if isinstance(result, dict) and "error" in result:
+        return f"Trello error: {result['error']}"
+
+    lines = [f"**{result.get('name', '?')}**"]
+
+    if result.get("due"):
+        done = " (complete)" if result.get("dueComplete") else ""
+        lines.append(f"Due: {result['due'][:10]}{done}")
+
+    labels = result.get("labels", [])
+    if labels:
+        lines.append(f"Labels: {', '.join(l.get('name', l.get('color', '?')) for l in labels)}")
+
+    members = result.get("members", [])
+    if members:
+        lines.append(f"Members: {', '.join(m.get('fullName', '?') for m in members)}")
+
+    desc = result.get("desc", "").strip()
+    if desc:
+        lines.append(f"\n**Description:**\n{desc[:1000]}")
+
+    checklists = result.get("checklists", [])
+    for cl in checklists:
+        items = cl.get("checkItems", [])
+        lines.append(f"\n**Checklist: {cl.get('name', '?')}**")
+        for item in items:
+            check = "x" if item.get("state") == "complete" else " "
+            lines.append(f"  [{check}] {item.get('name', '?')}")
+
+    # Fetch comments separately
+    comments = await _trello_api(ctx, f"/cards/{card_id}/actions", params={
+        "filter": "commentCard",
+        "limit": "20",
+        "fields": "data,date,memberCreator",
+        "memberCreator_fields": "fullName",
+    })
+
+    if isinstance(comments, list) and comments:
+        lines.append(f"\n**Comments ({len(comments)}):**")
+        for c in comments:
+            date = c.get("date", "")[:16].replace("T", " ")
+            who = c.get("memberCreator", {}).get("fullName", "?")
+            text = c.get("data", {}).get("text", "")[:300]
+            lines.append(f"  {date} | {who}: {text}")
+
+    lines.append(f"\nURL: {result.get('url', '?')}")
+    return "\n".join(lines)
