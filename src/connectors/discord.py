@@ -343,20 +343,16 @@ class DiscordBot:
         )
 
         # Sync slash commands with Discord.
-        # Sync per-guild to every guild THIS bot is a member of — guild-scoped
-        # syncs are instant, and each bot may be in different guilds.
-        # No hardcoded guild: we discover membership at runtime from the gateway.
-        target_guilds = list(self.client.guilds)
-        if not target_guilds:
-            # Fallback — no guilds, do a global sync
-            try:
-                synced = await self.tree.sync()
-                logger.info(f"[{self.account_name}] Synced {len(synced)} global commands (may take up to 1 hour)")
-            except Exception as e:
-                logger.error(f"[{self.account_name}] Failed to sync global commands: {e}")
-            return
+        # 1. Global sync — makes commands available in DMs (takes up to 1 hour)
+        # 2. Per-guild sync — instant availability in servers
+        try:
+            synced = await self.tree.sync()
+            logger.info(f"[{self.account_name}] Synced {len(synced)} global commands (DMs, may take up to 1 hour)")
+        except Exception as e:
+            logger.error(f"[{self.account_name}] Failed to sync global commands: {e}")
 
-        for guild in target_guilds:
+        # Per-guild sync for instant availability in servers
+        for guild in self.client.guilds:
             try:
                 guild_obj = discord.Object(id=guild.id)
                 self.tree.copy_global_to(guild=guild_obj)
