@@ -375,6 +375,19 @@ def _make_middleware_handler(
                     if alerter:
                         alerter.send_bg(alert_msg)
 
+                # Sanitization — strip hidden/invisible content, alert on removal
+                sanitized = sanitize(result_str)
+                chars_removed = len(result_str) - len(sanitized)
+                if chars_removed > 50:
+                    logger.info(f"Sanitized {_name} output: {chars_removed} chars removed")
+                    if alerter:
+                        alerter.send_bg(
+                            f"\U0001f9f9 **Content Sanitized**\n"
+                            f"Tool: `{_name}`\n"
+                            f"Removed: **{chars_removed}** chars (hidden/invisible content)"
+                        )
+                result_str = sanitized
+
             return result_str
 
         except Exception as e:
