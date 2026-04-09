@@ -257,6 +257,8 @@ Both run the same codebase (`uv run python -m src.main`), differentiated by `--p
 | **Access control** | Three-layer: sender tier × agent tier, per-message tool filtering, static agent ceiling |
 | **Credentials** | Fernet vault (`config/secrets.enc`), per-instance random salt, PBKDF2 key derivation |
 | **HITL** | Configurable gated tools, Discord reaction approval, timeout with fail-closed default |
+| **Content safety** | Three-stage pipeline: sanitize → injection scoring → behavioral monitoring |
+| **Security alerts** | Real-time alerts to configured Discord channel for content safety and behavioral anomalies |
 | **Rate limiting** | Per-tool sliding window (enforce mode), record-before-execute (TOCTOU-safe) |
 | **Bot-to-bot loop detection** | Per-bot sliding window (5 exchanges / 60s) — suppresses runaway ping-pong |
 | **Duplicate message suppression** | Per-channel dedup — same content to same channel within 120s is dropped |
@@ -265,6 +267,147 @@ Both run the same codebase (`uv run python -m src.main`), differentiated by `--p
 | **Path traversal** | `validate_file_path()` on all tools that write to user-controlled paths |
 | **SQL injection** | Parameterized queries everywhere |
 | **Env isolation** | Claude Code subprocess gets allowlisted env vars only — no secret leakage |
+
+### Content Safety Pipeline
+
+Three-stage pipeline in `src/core/content_safety.py`. Applied to **web-facing tool output** — tools that fetch external content which could contain adversarial payloads. Runs in `src/mcp_server.py` after tool execution.
+
+**Web-facing tools scanned:** `web_search`, `browse_url`, `read_url`, `browser`, `gmail_read`, `gmail_search`, `download_file` (defined in `src/core/alerts.py:WEB_FACING_TOOLS`).
+
+#### Stage 1: Sanitization
+
+`sanitize(text)` — strips content that shouldn't reach the LLM context:
+
+- Invisible Unicode (zero-width joiners, bidi overrides, BOM)
+- `<script>` and `<style>` blocks, then all remaining HTML tags
+- HTML entity unescaping
+- Data URIs and base64 blocks >200 chars → `[base64-removed]`
+- Unicode NFC normalization
+- Whitespace collapsing
+
+**Currently log-only** — sanitize runs and alerts to the security channel when >50 chars would be removed, but the original content passes through unchanged. This allows monitoring false-positive rates before switching to active stripping.
+
+#### Stage 2: Injection Scoring
+
+`score_injection(text)` — scores external content 0–10 for prompt injection signals. 23 regex patterns across four categories:
+
+| Category | Example patterns | Score per match |
+|----------|-----------------|-----------------|
+| **Instruction injection** | `ignore previous instructions`, `<\|im_start\|>`, `[INST]` | 3–4 |
+| **Authority spoofing** | `emergency override`, `admin mode`, `debug mode:` | 2–3 |
+| **Exfiltration** | `send this to`, `email it to`, `post in channel` | 2 |
+| **Delimiter attacks** | `--- BEGIN SYSTEM`, `HUMAN:`, `ASSISTANT:` | 2–3 |
+
+Alerts fire at **score >= 3** with the tool name, score, and matched patterns. Scans first 50KB for performance.
+
+#### Stage 3: Behavioral Monitoring
+
+`BehaviorMonitor` in `src/core/content_safety.py` — watches agent action patterns over time. Four anomaly checks:
+
+| Check | Trigger | Severity |
+|-------|---------|----------|
+| **Sensitive after external** | Gated tool within 5 min of consuming external content | HIGH |
+| **Novel tool** | Tool not in agent's first 50-call baseline | MEDIUM |
+| **Volume spike** | 3× rolling average in 10 min window (min 10 calls) | MEDIUM |
+| **Rapid sensitive** | 3+ different sensitive tools within 5 min | HIGH |
+
+Sensitive tools for behavioral monitoring: `send_email`, `share_drive_file`, `install_mcp`, `team_add/remove/update`, `create_skill`, `send_message`.
+
+### Security Alerts
+
+`AlertSender` in `src/core/alerts.py` — sends real-time alerts to a Discord channel via REST API.
+
+**Configuration** (Layer 3 `config.yaml`):
+
+```yaml
+security:
+  alert_channel: "123456789"    # Discord channel ID for all security alerts
+  alert_bot: "tars"             # Bot account for sending (vault key: discord-{alert_bot})
+```
+
+Both fields are required for alerts to fire. If either is missing, alerts fall back to `logger.warning()` only.
+
+The alert bot must have access to the alert channel. The bot token is resolved from the vault as `discord-{alert_bot}`.
+
+**Alert types sent to the channel:**
+
+- Content safety: injection score >= 3 (tool name, score, matched patterns)
+- Content sanitized: >50 chars of invisible content stripped (tool name, chars removed)
+- Behavioral anomalies: all four checks above (agent ID, check type, severity, details)
+- HITL decisions: approvals, denials, timeouts
+
+### HITL (Human-in-the-Loop)
+
+Configurable in Layer 3 `config.yaml`. When an agent calls a gated tool, execution pauses and an approval request is posted to the configured Discord channel. An approver must react with ✅ or ❌.
+
+**Configuration:**
+
+```yaml
+security:
+  hitl:
+    connector: discord
+    channel: "123456789"        # Channel for approval requests
+    approvers: ["user_id"]      # Discord user IDs who can approve
+    timeout: 1800               # Seconds before auto-deny (default: 30 min)
+    fail_mode: closed           # "closed" = deny on timeout/error, "open" = allow
+    poll_interval: 3            # Seconds between reaction checks
+    gated_tools:                # Tools requiring approval
+      - send_email
+      - install_mcp
+      - cloudflare_dns_update
+      - team_add
+      - team_update
+      - team_remove
+      - drive_delete
+      - discord_delete_channel
+```
+
+Tools are gated by **two mechanisms** (either triggers the gate):
+1. Listed in `gated_tools` in config (Layer 3 — deployment-specific)
+2. Decorated with `@tool(hitl=True)` in source (Core — hardcoded for universally dangerous tools)
+
+### Access Control
+
+Three-tier system in `src/core/access_control.py`. Every incoming message is checked against sender tier × agent tier.
+
+**Sender tiers** (from `config/team.json`):
+- `owner` — full access, can use any tool
+- `admin` / `staff` — safe tools only (unless HITL-approved)
+- `unknown` — denied by default (`unknown_policy: deny`)
+
+**Safe tools allowlist** — configured per-deployment in Layer 3:
+
+```yaml
+security:
+  access_control:
+    safe_tools:
+      - memory_search
+      - web_search
+      - team_list
+      # ... read-only tools
+    unknown_policy: deny
+```
+
+Tools not in `safe_tools` require owner tier, or HITL approval for agents. Each deployment configures its own allowlist based on which tools are available and appropriate.
+
+### Rate Limiting
+
+Per-tool sliding window in `src/core/rate_limiter.py`. Records the call **before** execution (TOCTOU-safe — no race between check and execute).
+
+```yaml
+security:
+  rate_limits:
+    mode: enforce               # "enforce" = block, "log" = warn only
+    defaults:
+      max_per_hour: 100
+    tools:
+      send_email:
+        max_per_hour: 10
+      install_mcp:
+        max_per_day: 5
+```
+
+Wildcard patterns supported (e.g., `amazon_sp_*: max_per_hour: 60`).
 
 ---
 
