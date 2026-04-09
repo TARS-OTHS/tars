@@ -1,7 +1,7 @@
-# T.A.R.S v2 — systemd service template
+# T.A.R.S — systemd service template
 
 [Unit]
-Description=T.A.R.S v2 Agent System
+Description=T.A.R.S Agent System
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +9,7 @@ Wants=network-online.target
 Type=simple
 User=tars
 Group=tars
-WorkingDirectory=/opt/tars-v2
+WorkingDirectory=/opt/tars
 ExecStart=/usr/local/bin/uv run --no-sync python -m src.main
 Restart=always
 RestartSec=10
@@ -34,13 +34,13 @@ SystemCallFilter=~@mount @reboot @swap @debug @obsolete @cpu-emulation @raw-io
 CapabilityBoundingSet=
 LockPersonality=true
 RemoveIPC=true
-ReadWritePaths=/opt/tars-v2/data /opt/tars-v2/agents /opt/tars-v2/config /tmp /home/tars/.cache /home/tars/.claude
-ReadOnlyPaths=/opt/tars-v2
+ReadWritePaths=/opt/tars/data /opt/tars/agents /opt/tars/config /tmp /home/tars/.cache /home/tars/.claude
+ReadOnlyPaths=/opt/tars
 
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=tars-v2
+SyslogIdentifier=tars
 
 [Install]
 WantedBy=multi-user.target
