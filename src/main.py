@@ -16,6 +16,7 @@ from src.core.agent_manager import AgentManager
 from src.core.storage import Storage
 from src.core.skills import get_all_skills
 from src.core.preflight import run_preflight
+from src.core.base import resolve_vault_key_file
 from src.vault.fernet import FernetVault
 
 logger = logging.getLogger("tars")
@@ -146,7 +147,7 @@ async def main() -> None:
     vault = FernetVault(vault_path=str(vault_path))
     if vault_path.exists():
         # Try key file first (for systemd), then interactive prompt
-        key_file = Path(os.environ.get("TARS_VAULT_KEY_FILE", "~/.config/tars-vault-key")).expanduser()
+        key_file = resolve_vault_key_file()
         if key_file.exists():
             passphrase = key_file.read_text().strip()
         elif not sys.stdin.isatty():

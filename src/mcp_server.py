@@ -26,7 +26,7 @@ from mcp.server.fastmcp import FastMCP
 
 from src.core.registry import Registry
 from src.core.tools import get_all_tools
-from src.core.base import ToolContext, ToolDef
+from src.core.base import ToolContext, ToolDef, PROJECT_ROOT, resolve_vault_key_file
 from src.core.audit import AuditLog
 from src.core.rate_limiter import RateLimiter
 from src.vault.fernet import FernetVault
@@ -421,7 +421,7 @@ def main():
     # Load config — respect layers: overlay → OTHS → core
     profile = os.environ.get("TARS_PROFILE", "")
     logger.info(f"MCP server cwd: {os.getcwd()}, TARS_PROFILE={profile!r}")
-    project_root = Path(__file__).resolve().parent.parent
+    project_root = PROJECT_ROOT
 
     # Build config search dirs (same layer order as main.py)
     config_dirs: list[Path] = []
@@ -461,7 +461,7 @@ def main():
     vault = FernetVault(str(vault_path))
 
     if vault_path.exists():
-        key_file = Path("~/.config/tars-vault-key").expanduser()
+        key_file = resolve_vault_key_file()
         if key_file.exists():
             passphrase = key_file.read_text().strip()
         else:

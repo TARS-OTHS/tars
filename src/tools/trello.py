@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 from urllib.parse import urlencode
 from urllib.error import URLError, HTTPError
 
-from src.core.base import ToolContext
+from src.core.base import ToolContext, resolve_config_file
 from src.core.tools import tool
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ def load_board_restrictions() -> None:
     """Load per-agent Trello board restrictions from agents.yaml."""
     from pathlib import Path
     import yaml
-    agents_file = Path("config/agents.yaml")
+    agents_file = resolve_config_file("agents.yaml")
     if not agents_file.exists():
         return
     with open(agents_file) as f:

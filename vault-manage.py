@@ -3,8 +3,9 @@
 import sys
 from pathlib import Path
 from src.vault.fernet import FernetVault
+from src.core.base import resolve_vault_key_file
 
-KEY_FILE = Path.home() / ".config/tars-vault-key"
+KEY_FILE = resolve_vault_key_file()
 
 # Common secrets for Core tools — deployments can add their own via "Custom key"
 ALL_KEYS = [
