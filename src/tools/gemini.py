@@ -126,7 +126,7 @@ def cleanup_temp_files():
 
 
 async def _resolve_file(file_path: str, vault=None) -> tuple[Path, str | None]:
-    """Resolve a file path or URL to a local file. Downloads URLs to /tmp.
+    """Resolve a file path or URL to a local file. Downloads URLs to temp dir.
 
     Supports: direct URLs, Discord CDN, Google Drive share links.
     For Drive links, uses OAuth2 token from vault for authenticated download.
@@ -180,7 +180,8 @@ async def _resolve_file(file_path: str, vault=None) -> tuple[Path, str | None]:
                     url_path = urlparse(file_path).path
                     if "." in url_path:
                         ext = "." + url_path.rsplit(".", 1)[-1].split("?")[0][:5]
-                tmp_path = Path(f"/tmp/tars-download-{int(time.time())}{ext}")
+                import tempfile
+                tmp_path = Path(tempfile.mktemp(prefix="tars-download-", suffix=ext))
                 tmp_path.write_bytes(await resp.read())
                 _tmp_files.append(tmp_path)
                 return tmp_path, None

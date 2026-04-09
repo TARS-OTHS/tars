@@ -39,7 +39,8 @@ async def _resolve_audio(file_path: str) -> tuple[Path, str | None]:
                     url_ext = "." + url_path.rsplit(".", 1)[-1].split("?")[0][:5]
                     if url_ext in (".mp3", ".wav", ".ogg", ".mp4", ".webm", ".m4a", ".flac"):
                         ext = url_ext
-                tmp_path = Path(f"/tmp/tars-audio-{int(time.time())}{ext}")
+                import tempfile
+                tmp_path = Path(tempfile.mktemp(prefix="tars-audio-", suffix=ext))
                 tmp_path.write_bytes(await resp.read())
                 return tmp_path, None
     from src.tools.ingest import validate_file_path
