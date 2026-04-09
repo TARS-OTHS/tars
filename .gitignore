@@ -31,6 +31,7 @@ config/secrets.salt
 # Agent workspaces — contain deployment-specific identities
 agents/engineer/
 agents/*/CLAUDE.md
+**/MEMORY_CONTEXT.md
 .mcp.json
 agents/*/.mcp.json
 agents/*/.claude/
