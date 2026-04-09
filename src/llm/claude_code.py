@@ -102,77 +102,83 @@ class ClaudeCodeProvider(LLMProvider):
 
         logger.debug(f"Claude Code: cwd={cwd} model={resolved_model} prompt_len={len(prompt)}")
 
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *args,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(cwd),
-                env=self._build_env(),
-            )
+        max_attempts = 2
+        for attempt in range(1, max_attempts + 1):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(cwd),
+                    env=self._build_env(),
+                )
 
-            # Notify caller of running process (for /stop support)
-            proc_callback = kwargs.get("proc_callback")
-            if proc_callback:
-                proc_callback(proc)
+                # Notify caller of running process (for /stop support)
+                proc_callback = kwargs.get("proc_callback")
+                if proc_callback:
+                    proc_callback(proc)
 
-            timeout = kwargs.get("timeout", self._timeout)
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=prompt.encode()),
-                timeout=timeout,
-            )
+                timeout = kwargs.get("timeout", self._timeout)
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(input=prompt.encode()),
+                    timeout=timeout,
+                )
 
-            if proc.returncode != 0:
-                stderr_text = stderr.decode().strip() if stderr else ""
-                stdout_text = stdout.decode().strip() if stdout else ""
+                if proc.returncode != 0:
+                    stderr_text = stderr.decode().strip() if stderr else ""
+                    stdout_text = stdout.decode().strip() if stdout else ""
 
-                # Try to extract error from JSON stdout (Claude Code sometimes returns errors there)
-                error_detail = ""
-                if stdout_text:
-                    try:
-                        data = json.loads(stdout_text)
-                        if data.get("is_error"):
-                            error_detail = data.get("result", "")
-                    except json.JSONDecodeError:
-                        error_detail = stdout_text[:500]
+                    # Try to extract error from JSON stdout (Claude Code sometimes returns errors there)
+                    error_detail = ""
+                    if stdout_text:
+                        try:
+                            data = json.loads(stdout_text)
+                            if data.get("is_error"):
+                                error_detail = data.get("result", "")
+                        except json.JSONDecodeError:
+                            error_detail = stdout_text[:500]
 
-                error_msg = stderr_text or error_detail or f"Exit code {proc.returncode}"
-                combined = f"{stderr_text} {error_detail}".lower()
-                if "401" in combined or "authentication" in combined or "not logged in" in combined:
-                    logger.critical(
-                        "Claude auth failed — token may be expired. "
-                        "Fix: run 'claude setup-token' as the tars user, then restart."
+                    error_msg = stderr_text or error_detail or f"Exit code {proc.returncode}"
+                    combined = f"{stderr_text} {error_detail}".lower()
+                    if "401" in combined or "authentication" in combined or "not logged in" in combined:
+                        if attempt < max_attempts:
+                            logger.warning("Claude auth error — retrying in 3s (may be transient)...")
+                            await asyncio.sleep(3)
+                            continue
+                        logger.critical(
+                            "Claude auth failed after retry — token may be expired. "
+                            "Fix: run 'claude setup-token' as the tars user, then restart."
+                        )
+                        return LLMResponse(
+                            content="Authentication failed — the Claude token needs to be refreshed. An admin needs to run `claude setup-token`.",
+                            stop_reason="error",
+                        )
+                    logger.error(
+                        f"Claude Code failed (exit={proc.returncode}): {error_msg}"
+                        + (f" | stdout: {stdout_text[:300]}" if stdout_text and not error_detail else "")
                     )
                     return LLMResponse(
-                        content="Authentication failed — the Claude token needs to be refreshed. An admin needs to run `claude setup-token`.",
+                        content=f"Error from Claude Code: {error_msg}",
                         stop_reason="error",
                     )
-                logger.error(
-                    f"Claude Code failed (exit={proc.returncode}): {error_msg}"
-                    + (f" | stdout: {stdout_text[:300]}" if stdout_text and not error_detail else "")
-                )
+
+                return self._parse_response(stdout.decode())
+
+            except FileNotFoundError:
+                logger.error(f"Claude Code CLI not found at '{self._claude_bin}'")
                 return LLMResponse(
-                    content=f"Error from Claude Code: {error_msg}",
+                    content="Claude Code CLI not found. Is it installed?",
                     stop_reason="error",
                 )
-
-            return self._parse_response(stdout.decode())
-
-        except asyncio.TimeoutError:
-            logger.error(f"Claude Code timed out after {self._timeout}s")
-            if proc:
-                proc.kill()
-            return LLMResponse(
-                content="Claude Code timed out. Try a simpler request.",
-                stop_reason="timeout",
-            )
-        except FileNotFoundError:
-            logger.error(f"Claude Code CLI not found at '{self._claude_bin}'")
-            return LLMResponse(
-                content="Claude Code CLI not found. Is it installed?",
-                stop_reason="error",
-            )
+            except asyncio.TimeoutError:
+                logger.error(f"Claude Code timed out after {self._timeout}s")
+                if proc:
+                    proc.kill()
+                return LLMResponse(
+                    content="Claude Code timed out. Try a simpler request.",
+                    stop_reason="timeout",
+                )
 
     def _build_prompt(self, messages: list[Message], resuming: bool = False) -> str:
         """Build a prompt string from messages.
