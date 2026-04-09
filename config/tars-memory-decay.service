@@ -1,10 +1,10 @@
 [Unit]
 Description=T.A.R.S Memory Context Regen + Decay
-After=tars-v2.service
+After=tars.service
 
 [Service]
 Type=oneshot
 User=tars
 Group=tars
-WorkingDirectory=/opt/tars-v2
-ExecStart=/opt/tars-v2/scripts/memory-decay.sh
+WorkingDirectory=/opt/tars
+ExecStart=/opt/tars/scripts/memory-decay.sh

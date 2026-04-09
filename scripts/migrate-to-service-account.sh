@@ -3,9 +3,9 @@
 # Run as root AFTER completing: sudo -u tars claude auth login
 #
 # This script:
-#   1. Stops the user-level (root) tars-v2 service
+#   1. Stops the user-level (root) tars service
 #   2. Disables it so it doesn't restart
-#   3. Transfers ownership of /opt/tars-v2 to tars:tars
+#   3. Transfers ownership of TARS_HOME to tars:tars
 #   4. Locks down sensitive files (600)
 #   5. Installs the system-level service (runs as User=tars)
 #   6. Starts TARS under the new service account
@@ -62,7 +62,7 @@ echo -e "${GREEN}All pre-flight checks passed.${NC}"
 echo ""
 
 # Step 1: Stop user-level service
-echo "Step 1: Stopping user-level tars-v2 service..."
+echo "Step 1: Stopping user-level tars service..."
 systemctl --user stop tars.service 2>/dev/null || true
 systemctl --user disable tars.service 2>/dev/null || true
 # Also kill any stray process
@@ -104,6 +104,6 @@ if systemctl is-active --quiet tars.service; then
     systemctl status tars.service --no-pager
 else
     echo -e "${RED}  T.A.R.S failed to start. Check logs:${NC}"
-    echo "  journalctl -u tars-v2 -n 30 --no-pager"
+    echo "  journalctl -u tars -n 30 --no-pager"
     exit 1
 fi

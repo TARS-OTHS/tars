@@ -85,10 +85,10 @@ uv run python scripts/google-reauth.py
 
 ### Production (systemd)
 ```bash
-systemctl start tars-v2.service
-systemctl stop tars-v2.service
-systemctl status tars-v2.service
-journalctl -u tars-v2 -f
+systemctl start tars.service
+systemctl stop tars.service
+systemctl status tars.service
+journalctl -u tars -f
 ```
 
 ### Development
