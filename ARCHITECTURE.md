@@ -230,6 +230,28 @@ Included tool packs:
 
 Add your own integrations by dropping a `@tool` decorated Python file into `src/tools/`.
 
+### Inter-Agent Communication
+
+Agents can communicate via two mechanisms, depending on whether they share a process:
+
+**`ask_agent` / `send_to_agent` (not currently functional):**
+
+These tools exist in `builtin.py` and route through `AgentManager.handle_internal_message()`. They are designed for direct HTTP LLM backends (Claude API, Groq, Ollama) where the system controls the message loop. They do **not** work when agents use the Claude Code CLI as their LLM backend, because the CLI owns its own session and cannot accept programmatically injected messages.
+
+Since all agents currently use Claude Code CLI, these tools are non-functional. They remain in the codebase for future use when agents switch to direct API backends.
+
+**Discord @mention workaround (current method):**
+
+All inter-agent communication goes through Discord. Agents @mention each other using `send_message`:
+
+```
+send_message(channel_id="...", content="<@BOT_ID> your message here", bot="sender_name")
+```
+
+The target bot's Discord connector picks up the @mention and responds naturally. This works across all agents regardless of process boundaries.
+
+Agent CLAUDE.md files should document bot IDs for each peer and instruct agents to use this method.
+
 ---
 
 ## Services
