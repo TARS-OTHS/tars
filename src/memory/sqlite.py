@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.core.base import MemoryBackend
+from src.core.base import MemoryBackend, PROJECT_ROOT
 from src.core.embedding import EmbeddingEngine
 
 logger = logging.getLogger(__name__)
@@ -35,11 +35,10 @@ class SQLiteMemory(MemoryBackend):
         # which would silently create empty per-agent DBs at
         # <project_dir>/data/memory.db instead of sharing the real one. See
         # ARCHITECTURE.md — "All paths must be absolute".
-        repo_root = Path(__file__).resolve().parents[2]
         if not Path(db_path).is_absolute():
-            db_path = str(repo_root / db_path)
+            db_path = str(PROJECT_ROOT / db_path)
         if not Path(model_dir).is_absolute():
-            model_dir = str(repo_root / model_dir)
+            model_dir = str(PROJECT_ROOT / model_dir)
 
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(db_path, check_same_thread=False)

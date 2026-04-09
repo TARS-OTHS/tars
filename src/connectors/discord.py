@@ -1,6 +1,7 @@
 """Discord connector — multi-bot, typing indicators, slash commands, no inline buttons."""
 
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -898,7 +899,8 @@ class DiscordBot:
                 "Restarting T.A.R.S via systemd... back in ~3 seconds.", ephemeral=True
             )
             import subprocess
-            subprocess.Popen(["sudo", "systemctl", "restart", "tars-v2"])
+            service = os.environ.get("TARS_SERVICE_NAME", "tars-v2")
+            subprocess.Popen(["sudo", "systemctl", "restart", service])
 
         self.tree.add_command(admin_group)
 
