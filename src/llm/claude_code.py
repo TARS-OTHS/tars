@@ -138,6 +138,16 @@ class ClaudeCodeProvider(LLMProvider):
                         error_detail = stdout_text[:500]
 
                 error_msg = stderr_text or error_detail or f"Exit code {proc.returncode}"
+                combined = f"{stderr_text} {error_detail}".lower()
+                if "401" in combined or "authentication" in combined or "not logged in" in combined:
+                    logger.critical(
+                        "Claude auth failed — token may be expired. "
+                        "Fix: run 'claude setup-token' as the tars user, then restart."
+                    )
+                    return LLMResponse(
+                        content="Authentication failed — the Claude token needs to be refreshed. An admin needs to run `claude setup-token`.",
+                        stop_reason="error",
+                    )
                 logger.error(
                     f"Claude Code failed (exit={proc.returncode}): {error_msg}"
                     + (f" | stdout: {stdout_text[:300]}" if stdout_text and not error_detail else "")
