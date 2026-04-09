@@ -32,7 +32,7 @@ config/secrets.salt
 agents/*/CLAUDE.md
 agents/*/.mcp.json
 agents/*/.claude/
-!agents/main/CLAUDE.md.example
+!agents/rescue/CLAUDE.md.example
 
 # Runtime security baselines — deployment-specific
 .security/
