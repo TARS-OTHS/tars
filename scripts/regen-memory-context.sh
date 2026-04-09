@@ -11,7 +11,7 @@ TARS_OVERLAY="${TARS_OVERLAY:-}"
 if [ -n "$TARS_OVERLAY" ] && ls -d "$TARS_OVERLAY"/agents/*/CLAUDE.md >/dev/null 2>&1; then
     FIRST_AGENT=$(ls -d "$TARS_OVERLAY"/agents/*/CLAUDE.md | head -1 | xargs dirname)
 else
-    FIRST_AGENT=$(ls -d "$TARS_HOME"/agents/*/CLAUDE.md 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "$TARS_HOME/agents/main")
+    FIRST_AGENT=$(ls -d "$TARS_HOME"/agents/*/CLAUDE.md 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "$TARS_HOME/agents/rescue")
 fi
 OUTPUT="$FIRST_AGENT/MEMORY_CONTEXT.md"
 
