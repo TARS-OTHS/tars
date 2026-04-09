@@ -362,9 +362,8 @@ async def discord_list_channels(ctx: ToolContext, guild_id: str) -> str:
 
 @tool(
     name="discord_create_channel",
-    description="[HITL-GATED] Create a new channel in a Discord server.",
+    description="Create a new channel in a Discord server.",
     category="discord",
-    hitl=True,
 )
 async def discord_create_channel(
     ctx: ToolContext,
@@ -407,9 +406,8 @@ async def discord_create_channel(
 
 @tool(
     name="discord_edit_channel",
-    description="[HITL-GATED] Edit a Discord channel's name, topic, or other settings.",
+    description="Edit a Discord channel's name, topic, or other settings.",
     category="discord",
-    hitl=True,
 )
 async def discord_edit_channel(
     ctx: ToolContext,
@@ -499,9 +497,8 @@ async def discord_list_guilds(ctx: ToolContext) -> str:
 
 @tool(
     name="discord_set_server_icon",
-    description="[HITL-GATED] Set or update a Discord server's icon from a local image file.",
+    description="Set or update a Discord server's icon from a local image file.",
     category="discord",
-    hitl=True,
 )
 async def discord_set_server_icon(
     ctx: ToolContext, guild_id: str, image_path: str

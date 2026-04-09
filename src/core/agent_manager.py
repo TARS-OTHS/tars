@@ -755,7 +755,7 @@ class AgentManager:
                         continue
 
             # --- HITL gate ---
-            if self.hitl and (self.hitl.is_gated(tool_name) or hitl_forced):
+            if self.hitl and (self.hitl.is_gated(tool_name) or tool_def.hitl or hitl_forced):
                 from src.core.hitl import build_hitl_description
                 desc = build_hitl_description(tool_name, args)
                 approval = await self.hitl.request_approval(agent_id, tool_name, args, desc)
