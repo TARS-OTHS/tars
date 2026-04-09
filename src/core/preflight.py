@@ -84,12 +84,18 @@ def _check_storage(db_path: str) -> tuple[bool, str]:
 
 
 def _check_agent_paths(agent_configs: dict) -> tuple[bool, str]:
-    """Verify all agent project directories exist."""
+    """Verify all agent project directories exist.
+
+    Checks both the configured path and $TARS_OVERLAY/agents/<name> since
+    overlay deployments keep agent dirs in Layer 3, not Core.
+    """
     missing = []
+    overlay = os.environ.get("TARS_OVERLAY", "")
     for name, cfg in agent_configs.items():
         project_dir = cfg.get("project_dir", f"./agents/{name}")
         p = Path(project_dir).resolve()
-        if not p.exists():
+        overlay_p = Path(overlay) / "agents" / name if overlay else None
+        if not p.exists() and not (overlay_p and overlay_p.exists()):
             missing.append(f"  {name}: {p}")
     if missing:
         return False, "Agent project directories missing:\n" + "\n".join(missing)
