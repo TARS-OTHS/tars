@@ -99,7 +99,7 @@ async def notion_read(ctx: ToolContext, page_id: str) -> str:
     return "\n".join(lines) if lines else "(empty page)"
 
 
-@tool(name="notion_create", description="Create a Notion page", category="notion", hitl=True)
+@tool(name="notion_create", description="Create a Notion page", category="notion")
 async def notion_create(ctx: ToolContext, title: str, content: str,
                         parent_page_id: str = "") -> str:
     """Create a new Notion page. Requires HITL approval."""
