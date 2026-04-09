@@ -106,7 +106,7 @@ The engine discovers Layer 2 and 3 via env vars:
 - Framework code: `src/core/`, `src/connectors/`, `src/llm/`, `src/memory/`, `src/vault/`, `src/auth/`
 - Generic tools usable by any deployment: memory, team, web, browser, google, trello, notion, cloudflare, discord, gemini, audio, video, tmux, ingest
 - Generic skills, MCP server, setup wizard, scripts, timers
-- Example configs only (`config/*.example`, `agents/main/CLAUDE.md.example`)
+- Example configs only (`config/*.example`, `agents/rescue/CLAUDE.md.example`)
 
 ### What does NOT belong in Core
 

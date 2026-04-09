@@ -1,8 +1,9 @@
 agents:
-  main:
-    display_name: "My Agent"
-    description: "Primary agent"
-    project_dir: ./agents/main
+  rescue:
+    display_name: "Rescue Bot"
+    description: "Privileged system agent — full project access for dev/ops"
+    project_dir: ./agents/rescue
+    privileged: true
     llm:
       provider: claude_code
       model: sonnet
