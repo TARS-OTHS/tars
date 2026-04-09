@@ -5,7 +5,9 @@ Requires ffmpeg installed on the system.
 
 import asyncio
 import logging
+import os
 import shlex
+import tempfile
 from pathlib import Path
 
 from src.core.base import ToolContext
@@ -15,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @tool(name="video_frames", description="Extract frames from a video file", category="media")
-async def video_frames(ctx: ToolContext, video_path: str, output_dir: str = "/tmp/frames",
+async def video_frames(ctx: ToolContext, video_path: str, output_dir: str = "",
                        interval: float = 1.0, max_frames: int = 10) -> str:
     """Extract frames from a video at regular intervals.
 
@@ -29,6 +31,8 @@ async def video_frames(ctx: ToolContext, video_path: str, output_dir: str = "/tm
     if not video.exists():
         return f"Video not found: {video_path}"
 
+    if not output_dir:
+        output_dir = tempfile.mkdtemp(prefix="tars-frames-")
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -54,7 +58,7 @@ async def video_frames(ctx: ToolContext, video_path: str, output_dir: str = "/tm
 
 @tool(name="video_clip", description="Extract a clip from a video", category="media")
 async def video_clip(ctx: ToolContext, video_path: str, start: str, duration: str,
-                     output_path: str = "/tmp/clip.mp4") -> str:
+                     output_path: str = "") -> str:
     """Extract a clip from a video.
 
     Args:
@@ -66,6 +70,10 @@ async def video_clip(ctx: ToolContext, video_path: str, start: str, duration: st
     video = Path(video_path)
     if not video.exists():
         return f"Video not found: {video_path}"
+
+    if not output_path:
+        fd, output_path = tempfile.mkstemp(prefix="tars-clip-", suffix=".mp4")
+        os.close(fd)
 
     cmd = f"ffmpeg -i {shlex.quote(video_path)} -ss {shlex.quote(start)} -t {shlex.quote(duration)} -c copy {shlex.quote(output_path)} -y 2>&1"
 
