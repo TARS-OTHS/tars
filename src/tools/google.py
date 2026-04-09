@@ -115,23 +115,42 @@ async def gmail_read(ctx: ToolContext, message_id: str) -> str:
     )
 
 
-@tool(name="send_email", description="Send an email via Gmail", category="google", hitl=True)
-async def send_email(ctx: ToolContext, to: str, subject: str, body: str) -> str:
-    """Send an email. Requires HITL approval."""
+@tool(name="send_email", description="Send or reply to an email via Gmail", category="google", hitl=True)
+async def send_email(ctx: ToolContext, to: str, subject: str, body: str, reply_to_id: str = "") -> str:
+    """Send an email, or reply to an existing thread. Set reply_to_id to the message ID to reply to."""
     import base64
-    raw_msg = f"To: {to}\nSubject: {subject}\nContent-Type: text/plain; charset=utf-8\n\n{body}"
+
+    headers = f"To: {to}\nSubject: {subject}\nContent-Type: text/plain; charset=utf-8\n"
+    thread_id = None
+
+    if reply_to_id:
+        orig_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{reply_to_id}?format=metadata&metadataHeaders=Message-ID&metadataHeaders=Subject"
+        orig = await _google_api(ctx, orig_url)
+        if "error" not in orig:
+            thread_id = orig.get("threadId")
+            orig_headers = {h["name"]: h["value"] for h in orig.get("payload", {}).get("headers", [])}
+            msg_id = orig_headers.get("Message-ID", "")
+            if msg_id:
+                headers += f"In-Reply-To: {msg_id}\nReferences: {msg_id}\n"
+
+    raw_msg = f"{headers}\n{body}"
     encoded = base64.urlsafe_b64encode(raw_msg.encode()).decode()
+
+    data = {"raw": encoded}
+    if thread_id:
+        data["threadId"] = thread_id
 
     result = await _google_api(
         ctx,
         "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
         method="POST",
-        data={"raw": encoded},
+        data=data,
     )
 
     if "error" in result:
         return f"Failed to send email: {result['error']}"
-    return f"Email sent to {to}: {subject}"
+    action = "Reply sent" if reply_to_id else "Email sent"
+    return f"{action} to {to}: {subject}"
 
 
 # === Google Calendar ===
