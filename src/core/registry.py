@@ -8,7 +8,7 @@ import pkgutil
 import sys
 from pathlib import Path
 
-from src.core.base import Connector, LLMProvider, MemoryBackend, VaultBackend
+from src.core.base import Connector, LLMProvider, MemoryBackend, VaultBackend, PROJECT_ROOT
 from src.core.tools import get_all_tools, _tool_registry
 from src.core.skills import load_skills, get_all_skills
 
@@ -79,7 +79,7 @@ class Registry:
 
         # Load agent-specific skills from agents/*/skills/
         # Check Core agents dir first, then overlay (overlay wins on collision)
-        core_agents = Path("agents")
+        core_agents = PROJECT_ROOT / "agents"
         if core_agents.is_dir():
             self._load_agent_skills(core_agents)
         if overlay_path:

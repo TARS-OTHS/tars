@@ -1,26 +1,40 @@
 #!/usr/bin/env bash
 # Install all T.A.R.S systemd timers.
-# Run as root: sudo bash /opt/tars/scripts/install-timers.sh
+# Run as root: sudo bash scripts/install-timers.sh
+#
+# Detects TARS_HOME from script location and substitutes into templates.
 set -euo pipefail
 
-TIMER_DIR="/opt/tars/config/timers"
+TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
+TIMER_DIR="$TARS_HOME/config/timers"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: Must run as root (sudo)"
     exit 1
 fi
 
-echo "Installing T.A.R.S systemd timers..."
+if [ ! -d "$TIMER_DIR" ]; then
+    echo "ERROR: Timer directory not found: $TIMER_DIR"
+    exit 1
+fi
 
-# Copy all service and timer files
-cp "$TIMER_DIR"/tars-*.service /etc/systemd/system/
-cp "$TIMER_DIR"/tars-*.timer /etc/systemd/system/
+echo "Installing T.A.R.S systemd timers..."
+echo "  TARS_HOME: $TARS_HOME"
+
+# Install service and timer files, substituting /opt/tars placeholder with actual path
+for src in "$TIMER_DIR"/tars-*.service "$TIMER_DIR"/tars-*.timer; do
+    [ -f "$src" ] || continue
+    name=$(basename "$src")
+    sed "s|/opt/tars|$TARS_HOME|g" "$src" > "/etc/systemd/system/$name"
+    echo "  Installed: $name"
+done
 
 # Reload systemd
 systemctl daemon-reload
 
 # Enable and start all timers
 for timer in "$TIMER_DIR"/tars-*.timer; do
+    [ -f "$timer" ] || continue
     name=$(basename "$timer")
     systemctl enable --now "$name"
     echo "  Enabled: $name"

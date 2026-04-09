@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
-from src.core.base import ToolContext
+from src.core.base import ToolContext, PROJECT_ROOT
 from src.core.tools import tool, get_all_tools
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ _BLOCKED_NETS = [
 ]
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PROJECT_ROOT = PROJECT_ROOT
 
 ALLOWED_PATH_ROOTS = (
     Path("/tmp"),
@@ -370,8 +370,7 @@ async def list_capabilities(ctx: ToolContext) -> str:
             lines.append(f"  `/{name.replace('_', '-')}` ({params}) — {skill.description}")
 
     # MCP
-    from pathlib import Path
-    mcp_path = Path("config/mcp.yaml")
+    mcp_path = PROJECT_ROOT / "config" / "mcp.yaml"
     if mcp_path.exists():
         import yaml
         with open(mcp_path) as f:
