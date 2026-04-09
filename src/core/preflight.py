@@ -10,6 +10,8 @@ import os
 import shutil
 from pathlib import Path
 
+from src.core.base import PROJECT_ROOT
+
 logger = logging.getLogger(__name__)
 
 
@@ -186,10 +188,10 @@ async def run_preflight(config: dict, vault, storage_path: str) -> bool:
 
     # --- Warnings (non-blocking) ---
     ownership_warnings = _check_file_ownership([
-        str(Path.cwd() / "data"),
-        str(Path.cwd() / "agents"),
-        str(Path.cwd() / "config"),
-        str(Path.cwd() / ".venv"),
+        str(PROJECT_ROOT / "data"),
+        str(PROJECT_ROOT / "agents"),
+        str(PROJECT_ROOT / "config"),
+        str(PROJECT_ROOT / ".venv"),
     ])
     for w in ownership_warnings:
         logger.warning(f"  ⚠ ownership: {w}")
