@@ -29,6 +29,7 @@ config/secrets.salt
 *.pem
 
 # Agent workspaces — contain deployment-specific identities
+agents/engineer/
 agents/*/CLAUDE.md
 .mcp.json
 agents/*/.mcp.json
