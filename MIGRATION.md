@@ -172,7 +172,7 @@ MCP:                  mcp-gateway (shared)            mcp-gateway (shared)
 #    Create a #tars-test channel
 
 # 2. Migrate config (does not touch existing TARS)
-cd /path/to/tars-v2
+cd /path/to/tars
 uv sync
 python -m src.cli migrate --from /path/to/existing/tars
 
