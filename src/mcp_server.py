@@ -28,6 +28,8 @@ from src.core.registry import Registry
 from src.core.tools import get_all_tools
 from src.core.base import ToolContext, ToolDef, PROJECT_ROOT, resolve_vault_key_file
 from src.core.audit import AuditLog
+from src.core.alerts import AlertSender, WEB_FACING_TOOLS
+from src.core.content_safety import sanitize, score_injection
 from src.core.rate_limiter import RateLimiter
 from src.vault.fernet import FernetVault
 
@@ -264,9 +266,17 @@ def build_server(vault: FernetVault, config: dict) -> FastMCP:
     data_dir = config.get("tars", {}).get("data_dir", "./data")
     tool_log_db = _init_tool_log(data_dir)
 
+    # Security alerts — send to configured Discord channel
+    alerter = AlertSender(config, vault)
+    if alerter.enabled:
+        logger.info(f"Security alerts: channel {alerter.channel_id}")
+    else:
+        logger.info("Security alerts: logger only (no alert_channel configured)")
+
     # Register each T.A.R.S tool as an MCP tool with middleware wrapping
     for tool_name, tool_def in tars_tools.items():
-        _register_tool(mcp, tool_def, vault, hitl, rate_limiter, audit, memory=memory, tool_log_db=tool_log_db)
+        _register_tool(mcp, tool_def, vault, hitl, rate_limiter, audit,
+                       memory=memory, tool_log_db=tool_log_db, alerter=alerter)
 
     return mcp
 
@@ -279,6 +289,7 @@ def _make_middleware_handler(
     audit: AuditLog | None,
     memory=None,
     tool_log_db=None,
+    alerter: AlertSender | None = None,
 ):
     """Create a middleware-wrapped handler for a tool.
 
@@ -346,7 +357,25 @@ def _make_middleware_handler(
                                 str(result)[:2000] if result else "", True, duration_ms)
 
             logger.info(f"Tool {_name} completed in {duration_ms}ms")
-            return str(result) if result is not None else "(no output)"
+
+            # --- Content safety scan for web-facing tools ---
+            result_str = str(result) if result is not None else "(no output)"
+            if _name in WEB_FACING_TOOLS and result_str:
+                score, matched = score_injection(result_str)
+                if score >= 3:
+                    alert_msg = (
+                        f"\u26a0\ufe0f **Content Safety Alert**\n"
+                        f"Tool: `{_name}`\n"
+                        f"Injection score: **{score}/10**\n"
+                        f"Patterns: {', '.join(matched[:5])}"
+                    )
+                    logger.warning(f"Injection detected in {_name} output: score={score} patterns={matched}")
+                    if audit:
+                        audit.log_content_safety("mcp-agent", score, _name, matched)
+                    if alerter:
+                        alerter.send_bg(alert_msg)
+
+            return result_str
 
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
@@ -370,6 +399,7 @@ def _register_tool(
     audit: AuditLog | None,
     memory=None,
     tool_log_db=None,
+    alerter: AlertSender | None = None,
 ) -> None:
     """Register a single T.A.R.S tool as an MCP tool with full middleware chain.
 
@@ -386,7 +416,8 @@ def _register_tool(
 
     # Create the middleware handler and give it the same signature as the
     # original function (minus 'ctx') so FastMCP extracts the right schema.
-    handler = _make_middleware_handler(tool_def, vault, hitl, rate_limiter, audit, memory=memory, tool_log_db=tool_log_db)
+    handler = _make_middleware_handler(tool_def, vault, hitl, rate_limiter, audit,
+                                      memory=memory, tool_log_db=tool_log_db, alerter=alerter)
 
     # Copy the original function's signature minus 'ctx' onto the handler.
     # FastMCP.from_function will introspect this to build the JSON schema.
