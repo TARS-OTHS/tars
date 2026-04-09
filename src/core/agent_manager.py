@@ -56,6 +56,7 @@ class AgentManager:
         audit: "AuditLog | None" = None,
         behavior_monitor: "BehaviorMonitor | None" = None,
         access_control: "AccessControl | None" = None,
+        alerter: "AlertSender | None" = None,
     ):
         self.agent_configs = agent_configs
         self.connectors = connectors
@@ -69,6 +70,7 @@ class AgentManager:
         self.audit = audit
         self.behavior_monitor = behavior_monitor
         self.access_control = access_control
+        self.alerter = alerter
 
         # Validate agent isolation before anything else
         self._validate_project_dirs()
@@ -804,6 +806,13 @@ class AgentManager:
                             self.audit.log_content_safety(
                                 agent_id, 0, alert["type"],
                                 [alert.get("tool", ""), alert.get("severity", "")],
+                            )
+                        if self.alerter:
+                            self.alerter.send_bg(
+                                f"\u26a0\ufe0f **Behavior Alert** [{alert.get('severity', 'MEDIUM')}]\n"
+                                f"Agent: `{agent_id}`\n"
+                                f"Type: `{alert['type']}`\n"
+                                f"Tool: `{alert.get('tool', tool_name)}`"
                             )
 
                 if self.storage:
