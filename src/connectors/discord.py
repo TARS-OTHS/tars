@@ -899,7 +899,7 @@ class DiscordBot:
                 "Restarting T.A.R.S via systemd... back in ~3 seconds.", ephemeral=True
             )
             import subprocess
-            service = os.environ.get("TARS_SERVICE_NAME", "tars-v2")
+            service = os.environ.get("TARS_SERVICE_NAME", "tars")
             subprocess.Popen(["sudo", "systemctl", "restart", service])
 
         self.tree.add_command(admin_group)
