@@ -5,18 +5,31 @@
 set -uo pipefail
 
 TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
-DB_PATH="${TARS_DATA_DIR:-$TARS_HOME/data}/memory.db"
-# Output to first agent dir found — check overlay first, then core
 TARS_OVERLAY="${TARS_OVERLAY:-}"
-if [ -n "$TARS_OVERLAY" ] && ls -d "$TARS_OVERLAY"/agents/*/CLAUDE.md >/dev/null 2>&1; then
-    FIRST_AGENT=$(ls -d "$TARS_OVERLAY"/agents/*/CLAUDE.md | head -1 | xargs dirname)
-else
-    FIRST_AGENT=$(ls -d "$TARS_HOME"/agents/*/CLAUDE.md 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "$TARS_HOME/agents/rescue")
-fi
-OUTPUT="$FIRST_AGENT/MEMORY_CONTEXT.md"
 
-if [ ! -f "$DB_PATH" ]; then
-    echo "Memory DB not found at $DB_PATH"
+# Resolve memory DB: overlay data dir takes priority over core
+if [ -n "$TARS_OVERLAY" ] && [ -f "$TARS_OVERLAY/data/memory.db" ]; then
+    DB_PATH="$TARS_OVERLAY/data/memory.db"
+elif [ -f "${TARS_DATA_DIR:-$TARS_HOME/data}/memory.db" ]; then
+    DB_PATH="${TARS_DATA_DIR:-$TARS_HOME/data}/memory.db"
+else
+    echo "Memory DB not found"
+    exit 0
+fi
+
+# Collect ALL agent dirs with a CLAUDE.md (overlay + core)
+AGENT_DIRS=()
+if [ -n "$TARS_OVERLAY" ]; then
+    for d in "$TARS_OVERLAY"/agents/*/CLAUDE.md; do
+        [ -f "$d" ] && AGENT_DIRS+=("$(dirname "$d")")
+    done
+fi
+for d in "$TARS_HOME"/agents/*/CLAUDE.md; do
+    [ -f "$d" ] && AGENT_DIRS+=("$(dirname "$d")")
+done
+
+if [ ${#AGENT_DIRS[@]} -eq 0 ]; then
+    echo "No agent dirs found"
     exit 0
 fi
 
@@ -34,7 +47,7 @@ db_size=$(du -m "$DB_PATH" 2>/dev/null | awk '{print $1}' || echo "0")
 
 now_utc=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
-cat > "$OUTPUT" << EOF
+CONTENT=$(cat << EOF
 # Memory Context — Auto-Generated
 
 **Generated:** $now_utc
@@ -56,5 +69,10 @@ cat > "$OUTPUT" << EOF
 | Inserts (24h) | $inserts_24h |
 | DB size | ${db_size}MB |
 EOF
+)
 
-echo "MEMORY_CONTEXT.md regenerated at $now_utc"
+for agent_dir in "${AGENT_DIRS[@]}"; do
+    echo "$CONTENT" > "$agent_dir/MEMORY_CONTEXT.md"
+done
+
+echo "MEMORY_CONTEXT.md written to ${#AGENT_DIRS[@]} agent(s) at $now_utc"
