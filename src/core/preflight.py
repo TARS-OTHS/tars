@@ -85,10 +85,13 @@ def _check_storage(db_path: str) -> tuple[bool, str]:
 
 def _check_agent_paths(agent_configs: dict) -> tuple[bool, str]:
     """Verify all agent project directories exist."""
+    overlay = os.environ.get("TARS_OVERLAY")
     missing = []
     for name, cfg in agent_configs.items():
         project_dir = cfg.get("project_dir", f"./agents/{name}")
         p = Path(project_dir).resolve()
+        if not p.exists() and overlay:
+            p = Path(overlay) / "agents" / name
         if not p.exists():
             missing.append(f"  {name}: {p}")
     if missing:
