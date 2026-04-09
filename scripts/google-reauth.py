@@ -34,9 +34,10 @@ REDIRECT_URI = "http://localhost:8085"
 
 def main():
     from src.vault.fernet import FernetVault
+    from src.core.base import resolve_vault_key_file
 
     vault = FernetVault()
-    key_file = Path("~/.config/tars-vault-key").expanduser()
+    key_file = resolve_vault_key_file()
     vault.unlock(key_file.read_text().strip())
 
     # Get existing credentials

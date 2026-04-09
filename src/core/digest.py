@@ -13,6 +13,7 @@ from pathlib import Path
 
 import yaml
 
+from src.core.base import PROJECT_ROOT
 from src.core.skills import load_skills, get_all_skills, _skill_registry
 from src.core.tools import _tool_registry
 
@@ -22,9 +23,9 @@ logger = logging.getLogger(__name__)
 def _build_watch_paths() -> dict[str, Path]:
     """Build watch paths across all layers: Core, OTHS ($TARS_OTHS), overlay ($TARS_OVERLAY)."""
     paths: dict[str, Path] = {
-        "skills": Path("skills"),
-        "tools": Path("src/tools"),
-        "mcp_config": Path("config/mcp.yaml"),
+        "skills": PROJECT_ROOT / "skills",
+        "tools": PROJECT_ROOT / "src" / "tools",
+        "mcp_config": PROJECT_ROOT / "config" / "mcp.yaml",
     }
 
     oths_raw = os.environ.get("TARS_OTHS", "")
@@ -182,7 +183,7 @@ def reload_tools() -> int:
     tool_names_before = set(_tool_registry.keys())
 
     # Core tools
-    _reload_tools_dir(Path("src/tools"), prefix="src.tools.")
+    _reload_tools_dir(PROJECT_ROOT / "src" / "tools", prefix="src.tools.")
 
     # OTHS tools
     oths_raw = os.environ.get("TARS_OTHS", "")
@@ -248,7 +249,7 @@ def ingest_skill_from_text(name: str, description: str, prompt: str,
     if parameters:
         skill_data["parameters"] = parameters
 
-    skill_path = Path("skills") / f"{name}.yaml"
+    skill_path = PROJECT_ROOT / "skills" / f"{name}.yaml"
     skill_path.parent.mkdir(parents=True, exist_ok=True)
     with open(skill_path, "w") as f:
         yaml.dump(skill_data, f, default_flow_style=False, sort_keys=False)
@@ -260,7 +261,7 @@ def ingest_skill_from_text(name: str, description: str, prompt: str,
 
 def ingest_mcp_server(name: str, url: str, transport: str = "sse") -> None:
     """Add an MCP server to config/mcp.yaml."""
-    mcp_path = Path("config/mcp.yaml")
+    mcp_path = PROJECT_ROOT / "config" / "mcp.yaml"
     if mcp_path.exists():
         with open(mcp_path) as f:
             config = yaml.safe_load(f) or {}

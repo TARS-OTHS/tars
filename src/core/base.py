@@ -13,7 +13,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Project root — directory containing src/
+# This is the single source of truth. Import from here, don't recompute.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def resolve_vault_key_file() -> Path:
+    """Resolve the vault key file path.
+
+    Checks TARS_VAULT_KEY_FILE env var, then falls back to ~/.config/tars-vault-key.
+    """
+    return Path(os.environ.get("TARS_VAULT_KEY_FILE", "~/.config/tars-vault-key")).expanduser()
 
 
 def resolve_config_file(name: str) -> Path:

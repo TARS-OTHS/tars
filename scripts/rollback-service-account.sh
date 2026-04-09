@@ -3,7 +3,9 @@
 # Run as root.
 set -euo pipefail
 
-echo "Rolling back to root..."
+TARS_DIR="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+echo "Rolling back to root... (TARS_DIR=$TARS_DIR)"
 
 # Stop system service
 systemctl stop tars.service 2>/dev/null || true
@@ -12,13 +14,13 @@ pkill -f "python -m src.main" 2>/dev/null || true
 sleep 2
 
 # Restore ownership
-chown -R root:root /opt/tars-v2
+chown -R root:root "$TARS_DIR"
 
 # Restore permissions
-chmod 644 /opt/tars-v2/config/team.json
-chmod 644 /opt/tars-v2/config/config.yaml
-chmod 644 /opt/tars-v2/data/*.db 2>/dev/null || true
-chmod 755 /opt/tars-v2/data
+chmod 644 "$TARS_DIR"/config/team.json
+chmod 644 "$TARS_DIR"/config/config.yaml
+chmod 644 "$TARS_DIR"/data/*.db 2>/dev/null || true
+chmod 755 "$TARS_DIR"/data
 
 # Re-enable user-level service
 systemctl --user enable tars.service 2>/dev/null || true

@@ -17,14 +17,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.vault.fernet import FernetVault
-from src.core.base import ToolContext
+from src.core.base import ToolContext, PROJECT_ROOT, resolve_vault_key_file
 from src.core.registry import Registry
 from src.core.tools import get_all_tools
 
 
 def get_vault():
-    vault = FernetVault(str(Path(__file__).resolve().parent.parent / "config/secrets.enc"))
-    key_file = Path.home() / ".config/tars-vault-key"
+    vault = FernetVault(str(PROJECT_ROOT / "config/secrets.enc"))
+    key_file = resolve_vault_key_file()
     vault.unlock(key_file.read_text().strip())
     return vault
 
