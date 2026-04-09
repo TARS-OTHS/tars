@@ -225,16 +225,16 @@ if ask_yn "Install systemd service? (auto-start on boot)"; then
     UV_PATH=$(which uv 2>/dev/null || echo "${HOME}/.local/bin/uv")
     sed -e "s|WorkingDirectory=.*|WorkingDirectory=${TARS_DIR}|" \
         -e "s|ExecStart=.*|ExecStart=${UV_PATH} run python -m src.main|" \
-        "${TARS_DIR}/config/tars-v2.service" > /etc/systemd/system/tars-v2.service
+        "${TARS_DIR}/config/tars.service" > /etc/systemd/system/tars.service
     systemctl daemon-reload
-    systemctl enable tars-v2.service
-    print_ok "Service installed (sudo systemctl start tars-v2)"
+    systemctl enable tars.service
+    print_ok "Service installed (sudo systemctl start tars)"
 fi
 
 # Done
 print_header "Setup Complete!"
 echo -e "  ${BOLD}Start:${NC}       uv run python -m src.main"
-echo -e "  ${BOLD}Or:${NC}          systemctl --user start tars-v2.service"
+echo -e "  ${BOLD}Or:${NC}          systemctl --user start tars.service"
 echo -e "  ${BOLD}Discord:${NC}     @${BOT_NAME} hello!"
 echo -e "  ${BOLD}Add keys:${NC}    .venv/bin/python vault-manage.py"
 echo -e "  ${BOLD}Tests:${NC}       .venv/bin/python scripts/test-tools.py"
