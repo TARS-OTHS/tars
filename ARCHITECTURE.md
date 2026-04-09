@@ -132,7 +132,7 @@ tars/
 │   ├── config.yaml.example    — example production config
 │   ├── agents.yaml.example    — example agent definitions
 │   ├── team.json.example      — example team roster
-│   ├── tars-v2.service        — systemd unit template
+│   ├── tars.service        — systemd unit template
 │   ├── tars-rescue.service    — systemd unit template (unsandboxed)
 │   └── timers/                — systemd timer+service files for scheduled tasks
 ├── scripts/
@@ -238,9 +238,9 @@ T.A.R.S runs as a systemd service. You can run multiple instances with different
 
 ```bash
 # Main service
-systemctl start tars-v2.service
-systemctl status tars-v2.service
-journalctl -u tars-v2 -f
+systemctl start tars.service
+systemctl status tars.service
+journalctl -u tars -f
 
 # Additional instance with different profile
 systemctl start tars-rescue.service
@@ -331,10 +331,10 @@ Add your own timers by creating service+timer files in `config/timers/` and runn
 
 ### Start / Stop / Status
 ```bash
-systemctl start tars-v2.service
-systemctl stop tars-v2.service
-systemctl status tars-v2.service
-journalctl -u tars-v2 -f
+systemctl start tars.service
+systemctl stop tars.service
+systemctl status tars.service
+journalctl -u tars -f
 ```
 
 ### Updating a Running Install
@@ -342,7 +342,7 @@ journalctl -u tars-v2 -f
 After pulling new code, run `uv sync` **before** restarting the service:
 
 ```bash
-cd /opt/tars-v2
+cd /opt/tars
 sudo -u tars git pull
 sudo -u tars uv sync                       # reconcile .venv with lockfile
 
@@ -351,7 +351,7 @@ for dir in ${TARS_OTHS//:/ }; do
     [ -f "$(dirname "$dir")/requirements.txt" ] && sudo -u tars uv pip install -r "$(dirname "$dir")/requirements.txt"
 done
 
-sudo systemctl restart tars-v2
+sudo systemctl restart tars
 ```
 
 The service unit uses `uv run --no-sync` so that service start never writes to the sandboxed, read-only `.venv`. Dependency updates are therefore **explicit**: `uv sync` runs in a normal shell (where `.venv` is writable) before the restart.

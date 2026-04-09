@@ -63,12 +63,12 @@ claude login
 
 ```bash
 # Copy the systemd template
-sudo cp config/tars-v2.service /etc/systemd/system/
+sudo cp config/tars.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now tars-v2.service
+sudo systemctl enable --now tars.service
 
 # View logs
-journalctl -u tars-v2 -f
+journalctl -u tars -f
 ```
 
 ### Running with Profiles
