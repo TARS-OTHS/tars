@@ -4,14 +4,25 @@
 # Usage: source /opt/tars/scripts/lib-alert.sh
 
 TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
+TARS_OVERLAY="${TARS_OVERLAY:-}"
 TARS_VENV="$TARS_HOME/.venv/bin/python"
-ALERT_CHANNEL="${TARS_ALERT_CHANNEL:-}"  # set via config/channels.env
+
+# Load channel config — overlay takes priority over core
+[ -f "$TARS_HOME/config/channels.env" ] && source "$TARS_HOME/config/channels.env"
+[ -n "$TARS_OVERLAY" ] && [ -f "$TARS_OVERLAY/config/channels.env" ] && source "$TARS_OVERLAY/config/channels.env"
+ALERT_CHANNEL="${TARS_ALERT_CHANNEL:-}"
+
+# Resolve secrets.enc — overlay takes priority
+_SECRETS_ENC="$TARS_HOME/config/secrets.enc"
+if [ -n "$TARS_OVERLAY" ] && [ -f "$TARS_OVERLAY/config/secrets.enc" ]; then
+    _SECRETS_ENC="$TARS_OVERLAY/config/secrets.enc"
+fi
 
 _get_bot_token() {
     "$TARS_VENV" -c "
 from src.vault.fernet import FernetVault
 from pathlib import Path
-v = FernetVault('$TARS_HOME/config/secrets.enc')
+v = FernetVault('$_SECRETS_ENC')
 v.unlock(Path.home().joinpath('.config/tars-vault-key').read_text().strip())
 print(v.get('discord-token') or '', end='')
 " 2>/dev/null
