@@ -243,6 +243,14 @@ async def main() -> None:
     # Behavior monitor
     behavior_monitor = BehaviorMonitor()
 
+    # Security alerter — sends alerts to configured Discord channel
+    from src.core.alerts import AlertSender
+    alerter = AlertSender(config, vault)
+    if alerter.enabled:
+        logger.info(f"Security alerts: channel {alerter.channel_id}")
+    else:
+        logger.info("Security alerts: logger only (no alert_channel configured)")
+
     # Access control
     from src.core.access_control import AccessControl
     ac_cfg = security_cfg.get("access_control", {})
@@ -267,6 +275,7 @@ async def main() -> None:
         audit=audit,
         behavior_monitor=behavior_monitor,
         access_control=access_control,
+        alerter=alerter,
     )
 
     # --- Connectors ---
