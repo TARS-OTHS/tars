@@ -3,15 +3,18 @@
 # Run as root: sudo bash scripts/install-timers.sh
 #
 # Detects TARS_HOME from script location, optionally reads TARS_OVERLAY
-# from environment or the main tars-v2.service unit.
+# from environment or the main service unit.
 set -euo pipefail
 
 TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
 TIMER_DIR="$TARS_HOME/config/timers"
 
 # Try to pick up TARS_OVERLAY from env, or from the main service unit
+# Check tars.service first, fall back to tars-v2.service for legacy installs
 if [ -z "${TARS_OVERLAY:-}" ]; then
-    TARS_OVERLAY=$(grep -oP 'TARS_OVERLAY=\K.*' /etc/systemd/system/tars-v2.service 2>/dev/null || true)
+    TARS_OVERLAY=$(grep -oP 'TARS_OVERLAY=\K.*' /etc/systemd/system/tars.service 2>/dev/null \
+        || grep -oP 'TARS_OVERLAY=\K.*' /etc/systemd/system/tars-v2.service 2>/dev/null \
+        || true)
 fi
 
 if [ "$(id -u)" -ne 0 ]; then
