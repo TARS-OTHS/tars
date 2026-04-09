@@ -1,6 +1,7 @@
 """Audio tools — transcription via Groq Whisper API."""
 
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -40,7 +41,9 @@ async def _resolve_audio(file_path: str) -> tuple[Path, str | None]:
                     if url_ext in (".mp3", ".wav", ".ogg", ".mp4", ".webm", ".m4a", ".flac"):
                         ext = url_ext
                 import tempfile
-                tmp_path = Path(tempfile.mktemp(prefix="tars-audio-", suffix=ext))
+                fd, tmp = tempfile.mkstemp(prefix="tars-audio-", suffix=ext)
+                os.close(fd)
+                tmp_path = Path(tmp)
                 tmp_path.write_bytes(await resp.read())
                 return tmp_path, None
     from src.tools.ingest import validate_file_path

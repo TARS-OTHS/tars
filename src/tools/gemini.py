@@ -6,6 +6,7 @@ API key from vault: secrets/gemini-api-key
 import base64
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -181,7 +182,9 @@ async def _resolve_file(file_path: str, vault=None) -> tuple[Path, str | None]:
                     if "." in url_path:
                         ext = "." + url_path.rsplit(".", 1)[-1].split("?")[0][:5]
                 import tempfile
-                tmp_path = Path(tempfile.mktemp(prefix="tars-download-", suffix=ext))
+                fd, tmp = tempfile.mkstemp(prefix="tars-download-", suffix=ext)
+                os.close(fd)
+                tmp_path = Path(tmp)
                 tmp_path.write_bytes(await resp.read())
                 _tmp_files.append(tmp_path)
                 return tmp_path, None
