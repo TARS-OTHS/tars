@@ -71,7 +71,7 @@ async def gmail_search(ctx: ToolContext, query: str, max_results: int = 5) -> st
         if "error" in detail:
             continue
         headers = {h["name"]: h["value"] for h in detail.get("payload", {}).get("headers", [])}
-        lines.append(f"  - {headers.get('Subject', '(no subject)')} from {headers.get('From', '?')} ({headers.get('Date', '')})")
+        lines.append(f"  - [{msg['id']}] {headers.get('Subject', '(no subject)')} from {headers.get('From', '?')} ({headers.get('Date', '')})")
 
     return "\n".join(lines)
 
@@ -79,6 +79,7 @@ async def gmail_search(ctx: ToolContext, query: str, max_results: int = 5) -> st
 @tool(name="gmail_read", description="Read a Gmail message by ID", category="google")
 async def gmail_read(ctx: ToolContext, message_id: str) -> str:
     """Read the full content of a Gmail message."""
+    import base64
     url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}?format=full"
     result = await _google_api(ctx, url)
 
@@ -86,14 +87,31 @@ async def gmail_read(ctx: ToolContext, message_id: str) -> str:
         return f"Failed to read email: {result['error']}"
 
     headers = {h["name"]: h["value"] for h in result.get("payload", {}).get("headers", [])}
-    snippet = result.get("snippet", "")
+
+    # Decode full body from payload parts
+    body = ""
+    payload = result.get("payload", {})
+    parts = payload.get("parts", [])
+    if parts:
+        for part in parts:
+            if part.get("mimeType") == "text/plain":
+                data = part.get("body", {}).get("data", "")
+                if data:
+                    body = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+                    break
+    if not body:
+        data = payload.get("body", {}).get("data", "")
+        if data:
+            body = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+        else:
+            body = result.get("snippet", "(no body)")
 
     return (
         f"Subject: {headers.get('Subject', '(none)')}\n"
         f"From: {headers.get('From', '?')}\n"
         f"Date: {headers.get('Date', '?')}\n"
         f"To: {headers.get('To', '?')}\n\n"
-        f"{snippet}"
+        f"{body}"
     )
 
 
