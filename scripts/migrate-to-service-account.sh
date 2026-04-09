@@ -19,7 +19,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-TARS_DIR="/opt/tars-v2"
+TARS_DIR="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 echo -e "${YELLOW}=== T.A.R.S Service Account Migration ===${NC}"
 echo ""
