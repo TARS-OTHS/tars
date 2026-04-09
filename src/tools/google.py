@@ -146,7 +146,7 @@ async def calendar_list(ctx: ToolContext, max_results: int = 10) -> str:
     return "\n".join(lines)
 
 
-@tool(name="calendar_create", description="Create a calendar event", category="google", hitl=True)
+@tool(name="calendar_create", description="Create a calendar event", category="google")
 async def calendar_create(
     ctx: ToolContext, summary: str, start: str, end: str,
     description: str = "", location: str = ""
@@ -176,7 +176,7 @@ async def calendar_create(
 
 # === Google Meet ===
 
-@tool(name="meet_create", description="Create an instant or scheduled Google Meet with a join link", category="google", hitl=True)
+@tool(name="meet_create", description="Create an instant or scheduled Google Meet with a join link", category="google")
 async def meet_create(
     ctx: ToolContext, summary: str = "Quick Meeting",
     attendees: str = "", duration_minutes: int = 60,
@@ -575,7 +575,7 @@ async def drive_list_folder(ctx: ToolContext, folder_id: str, max_results: int =
     return "\n".join(lines)
 
 
-@tool(name="share_drive_file", description="Share a Drive file", category="google", hitl=True)
+@tool(name="share_drive_file", description="Share a Drive file", category="google")
 async def share_drive_file(ctx: ToolContext, file_id: str, email: str,
                            role: str = "reader") -> str:
     """Share a Google Drive file with someone. Requires HITL approval."""
@@ -652,7 +652,7 @@ async def drive_download(ctx: ToolContext, file_id_or_url: str, output_dir: str 
     return f"Downloaded: {out_path} ({size_mb:.1f}MB, {mime})"
 
 
-@tool(name="drive_create_doc", description="Create or update a Google Doc from a local file or text content", category="google", hitl=True)
+@tool(name="drive_create_doc", description="Create or update a Google Doc from a local file or text content", category="google")
 async def drive_create_doc(ctx: ToolContext, title: str, content: str = "",
                            file_path: str = "", folder_id: str = "",
                            update_id: str = "") -> str:
@@ -765,7 +765,7 @@ async def drive_create_doc(ctx: ToolContext, title: str, content: str = "",
         return f"Created: {result.get('name', title)} — {result.get('webViewLink', result.get('id', '?'))}"
 
 
-@tool(name="drive_upload", description="Upload a local file to Google Drive", category="google", hitl=True)
+@tool(name="drive_upload", description="Upload a local file to Google Drive", category="google")
 async def drive_upload(ctx: ToolContext, file_path: str, folder_id: str = "",
                        name: str = "") -> str:
     """Upload a file from local disk to Google Drive.
@@ -821,7 +821,7 @@ async def drive_upload(ctx: ToolContext, file_path: str, folder_id: str = "",
     return f"Uploaded: {result.get('name', filename)} ({size_mb:.1f}MB) — {result.get('webViewLink', result.get('id', '?'))}"
 
 
-@tool(name="drive_upload_url", description="Download a file from a URL and upload it to Google Drive", category="google", hitl=True)
+@tool(name="drive_upload_url", description="Download a file from a URL and upload it to Google Drive", category="google")
 async def drive_upload_url(ctx: ToolContext, url: str, folder_id: str = "",
                            name: str = "") -> str:
     """Download a file from a URL and upload it directly to Google Drive.

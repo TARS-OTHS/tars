@@ -225,7 +225,7 @@ async def trello_activity(ctx: ToolContext, board_id: str, days: int = 3, limit:
     return "\n".join(lines)
 
 
-@tool(name="trello_create_card", description="Create a new Trello card", category="trello", hitl=True)
+@tool(name="trello_create_card", description="Create a new Trello card", category="trello")
 async def trello_create_card(ctx: ToolContext, list_id: str, name: str,
                               desc: str = "", due: str = "") -> str:
     """Create a new card on a Trello list. Requires HITL approval.
@@ -250,7 +250,7 @@ async def trello_create_card(ctx: ToolContext, list_id: str, name: str,
     return f"Card created: {result.get('name', name)} — {result.get('url', '')}"
 
 
-@tool(name="trello_archive_card", description="Archive (close) a Trello card", category="trello", hitl=True)
+@tool(name="trello_archive_card", description="Archive (close) a Trello card", category="trello")
 async def trello_archive_card(ctx: ToolContext, card_id: str) -> str:
     """Archive a Trello card. Requires HITL approval.
 
@@ -266,7 +266,7 @@ async def trello_archive_card(ctx: ToolContext, card_id: str) -> str:
     return f"Card archived: {result.get('name', card_id)}"
 
 
-@tool(name="trello_delete_card", description="Permanently delete a Trello card", category="trello", hitl=True)
+@tool(name="trello_delete_card", description="Permanently delete a Trello card", category="trello")
 async def trello_delete_card(ctx: ToolContext, card_id: str) -> str:
     """Permanently delete a Trello card. This cannot be undone. Requires HITL approval.
 
