@@ -15,6 +15,7 @@ from src.core.router import Router
 from src.core.agent_manager import AgentManager
 from src.core.storage import Storage
 from src.core.skills import get_all_skills
+from src.core.preflight import run_preflight
 from src.vault.fernet import FernetVault
 
 logger = logging.getLogger("tars")
@@ -172,8 +173,14 @@ async def main() -> None:
         os.environ["GITHUB_TOKEN"] = gh_token
         logger.info("GitHub token loaded from vault")
 
-    # --- Storage ---
+    # --- Preflight checks ---
     data_dir = config.get("tars", {}).get("data_dir", "./data")
+    preflight_ok = await run_preflight(config, vault, f"{data_dir}/tars.db")
+    if not preflight_ok:
+        logger.critical("Preflight failed — fix errors above and restart")
+        sys.exit(1)
+
+    # --- Storage ---
     storage = Storage(db_path=f"{data_dir}/tars.db")
     await storage.init()
 
