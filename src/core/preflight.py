@@ -142,9 +142,14 @@ async def run_preflight(config: dict, vault, storage_path: str) -> bool:
     ok, msg = _check_claude_cli()
     checks.append(("claude_cli", (ok, msg)))
 
-    # Auth works (async)
+    # Auth works (async) — warn only, don't block startup
     ok, msg = await _check_claude_auth()
-    checks.append(("claude_auth", (ok, msg)))
+    if ok:
+        logger.info(f"  ✓ claude_auth: {msg}")
+        passed += 1
+    else:
+        logger.warning(f"  ⚠ claude_auth: {msg}")
+        warnings += 1
 
     # Storage
     ok, msg = _check_storage(storage_path)
