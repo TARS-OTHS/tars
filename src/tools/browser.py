@@ -217,7 +217,8 @@ async def browser(
         elif action == "screenshot":
             screenshot_bytes = await page.screenshot(full_page=full_page)
             # Save to tmp and return path for Gemini/vision analysis
-            path = Path("/tmp") / f"browser_screenshot_{session}_{int(time.time())}.png"
+            import tempfile
+            path = Path(tempfile.mktemp(prefix=f"browser_screenshot_{session}_", suffix=".png"))
             path.write_bytes(screenshot_bytes)
             title = await page.title()
             return f"Screenshot saved: {path}\nPage: **{title}** | URL: {page.url}"
