@@ -513,32 +513,13 @@ sudo -u tars scripts/sync.sh              # install all layers
 sudo systemctl restart tars
 ```
 
-`scripts/sync.sh` runs `uv sync` (Core) then installs Layer 2 and Layer 3 `requirements.txt` files discovered via `TARS_OTHS` and `TARS_OVERLAY` env vars. This ensures Layer 2 packages survive Core dependency reconciliation — bare `uv sync` actively removes packages it doesn't recognise.
+`scripts/sync.sh` runs `uv sync` (Core) then installs Layer 2 and Layer 3 `requirements.txt` files discovered via `TARS_OTHS` and `TARS_OVERLAY` env vars. If these aren't in the shell environment, the script falls back to reading them from the `tars.service` systemd unit — so the service unit is the single source of truth. No shell profile exports needed.
+
+This ensures Layer 2 packages survive Core dependency reconciliation — bare `uv sync` actively removes packages it doesn't recognise.
 
 The service unit uses `uv run --no-sync` so that service start never writes to the sandboxed, read-only `.venv`. Dependency updates are therefore **explicit**: `scripts/sync.sh` runs in a normal shell (where `.venv` is writable) before the restart.
 
 Skipping sync after a dep change means the service will either crash on startup (`ImportError` for a new dep) or silently run stale code against a bumped version. The script is a no-op when nothing changed, so it's safe to run unconditionally as part of the deploy ritual.
-
-### Shell Environment for the Service User
-
-`scripts/sync.sh` reads `TARS_OTHS` and `TARS_OVERLAY` to discover Layer 2/3 dependencies. These env vars are set in the systemd service unit, but **must also be exported in the service user's shell profile** so that manual deploys (`sudo -u tars scripts/sync.sh`) work without passing them inline.
-
-Add to `~tars/.profile` (or equivalent) on each deployment:
-
-```bash
-# T.A.R.S layer paths — used by scripts/sync.sh and module discovery
-export TARS_OTHS=/path/to/layer2/module1:/path/to/layer2/module2
-export TARS_OVERLAY=/path/to/layer3/overlay
-```
-
-These paths are deployment-specific. Example for a deployment with amazon and triage modules:
-
-```bash
-export TARS_OTHS=/opt/tars-oths/amazon:/opt/tars-oths/triage:/opt/tars-oths/ops
-export TARS_OVERLAY=/opt/tars-overlay
-```
-
-Without this, `scripts/sync.sh` will only install Core deps and skip Layer 2/3 — which is the same failure mode as bare `uv sync`.
 
 ### Test Mode
 ```bash

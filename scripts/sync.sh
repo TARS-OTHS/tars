@@ -14,6 +14,21 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# --- Resolve layer paths from systemd if not in environment ---
+# The service unit is the single source of truth for TARS_OTHS and TARS_OVERLAY.
+# This fallback means manual deploys (sudo -u tars scripts/sync.sh) work without
+# maintaining a separate shell profile export.
+if [ -z "${TARS_OTHS:-}" ]; then
+    TARS_OTHS=$(systemctl show tars.service -p Environment --value 2>/dev/null \
+        | tr ' ' '\n' | grep -oP '^TARS_OTHS=\K.*' || true)
+    [ -n "$TARS_OTHS" ] && echo "[sync] TARS_OTHS resolved from systemd unit"
+fi
+if [ -z "${TARS_OVERLAY:-}" ]; then
+    TARS_OVERLAY=$(systemctl show tars.service -p Environment --value 2>/dev/null \
+        | tr ' ' '\n' | grep -oP '^TARS_OVERLAY=\K.*' || true)
+    [ -n "$TARS_OVERLAY" ] && echo "[sync] TARS_OVERLAY resolved from systemd unit"
+fi
+
 # --- Layer 1: Core ---
 echo "[sync] Layer 1: uv sync (Core)"
 uv sync
