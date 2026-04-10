@@ -66,8 +66,49 @@ print_step "Installing Python dependencies..."
 "$TARS_DIR/scripts/sync.sh"
 print_ok "Dependencies installed"
 
-# Step 2: Discord Bot
-print_header "Step 2: Discord Bot"
+# Step 2: Overlay Directory
+print_header "Step 2: Deployment Overlay"
+echo "  The overlay holds your config, agent identities, service files,"
+echo "  and generated files — separate from the engine code."
+echo "  This keeps Core clean for updates."
+echo ""
+
+# Compute sensible default: sibling directory named *-overlay
+PARENT_DIR="$(dirname "$TARS_DIR")"
+# Strip version suffix (tars-v2 -> tars) for the overlay name
+BASE_NAME="$(basename "$TARS_DIR" | sed 's/-v[0-9]*//')"
+DEFAULT_OVERLAY="$PARENT_DIR/${BASE_NAME}-overlay"
+
+read -rp "  Overlay directory [$DEFAULT_OVERLAY]: " OVERLAY_INPUT
+TARS_OVERLAY="${OVERLAY_INPUT:-$DEFAULT_OVERLAY}"
+
+mkdir -p "$TARS_OVERLAY"/{config,agents,systemd,tmp/{media,docs,scratch}}
+
+# Create overlay .gitignore
+[ ! -f "$TARS_OVERLAY/.gitignore" ] && cat > "$TARS_OVERLAY/.gitignore" << 'GITIGNORE'
+# Runtime data
+agents/*/data/
+**/MEMORY_CONTEXT.md
+
+# Agent-generated files
+tmp/
+
+# Python
+__pycache__/
+*.pyc
+
+# Claude Code session state
+/.claude/
+
+# Secrets
+config/secrets.enc
+config/secrets.salt
+GITIGNORE
+
+print_ok "Overlay created at $TARS_OVERLAY"
+
+# Step 3: Discord Bot
+print_header "Step 3: Discord Bot"
 echo "  You need a Discord bot token. If you don't have one:"
 echo ""
 echo "  1. Go to https://discord.com/developers/applications"
@@ -94,16 +135,16 @@ if ask_yn "Got a bot token ready?"; then
     print_ok "Bot: $BOT_NAME"
 fi
 
-# Step 3: Vault
-print_header "Step 3: Encrypted Vault"
+# Step 4: Vault
+print_header "Step 4: Encrypted Vault"
 echo "  Your credentials are stored encrypted. Choose a passphrase."
 echo ""
 
-if [ ! -f config/secrets.enc ]; then
+if [ ! -f "$TARS_OVERLAY/config/secrets.enc" ]; then
     read -rsp "  Vault passphrase: " VAULT_PASS; echo ""
     .venv/bin/python3 -c "
 from src.vault.fernet import FernetVault
-v = FernetVault('config/secrets.enc')
+v = FernetVault('$TARS_OVERLAY/config/secrets.enc')
 v.unlock('$VAULT_PASS')
 if '$BOT_TOKEN': v.set('discord-token', '$BOT_TOKEN')
 print(f'  Vault created: {len(v.list_keys())} secret(s)')
@@ -116,14 +157,14 @@ else
     print_ok "Vault already exists"
 fi
 
-# Step 4: Configuration
-print_header "Step 4: Agent Configuration"
+# Step 5: Configuration
+print_header "Step 5: Agent Configuration"
 
 AGENT_NAME="main"
 ask "Name your agent (default: main)" AGENT_NAME_INPUT
 [ -n "${AGENT_NAME_INPUT:-}" ] && AGENT_NAME="$AGENT_NAME_INPUT"
 
-[ ! -f config/config.yaml ] && cat > config/config.yaml << YAML
+[ ! -f "$TARS_OVERLAY/config/config.yaml" ] && cat > "$TARS_OVERLAY/config/config.yaml" << YAML
 tars:
   name: "T.A.R.S"
   log_level: info
@@ -161,12 +202,12 @@ admin_users:
   discord: ["${USER_ID:-YOUR_USER_ID}"]
 YAML
 
-[ ! -f config/agents.yaml ] && cat > config/agents.yaml << YAML
+[ ! -f "$TARS_OVERLAY/config/agents.yaml" ] && cat > "$TARS_OVERLAY/config/agents.yaml" << YAML
 agents:
   ${AGENT_NAME}:
     display_name: "${AGENT_NAME^}"
     description: "Primary agent"
-    project_dir: ./agents/${AGENT_NAME}
+    project_dir: ${TARS_OVERLAY}/agents/${AGENT_NAME}
     llm:
       provider: claude_code
       model: sonnet
@@ -179,9 +220,9 @@ agents:
         mentions: true
 YAML
 
-[ ! -f config/team.json ] && cp config/team.json.example config/team.json
+[ ! -f "$TARS_OVERLAY/config/team.json" ] && cp config/team.json.example "$TARS_OVERLAY/config/team.json"
 
-AGENT_DIR="agents/${AGENT_NAME}"
+AGENT_DIR="$TARS_OVERLAY/agents/${AGENT_NAME}"
 mkdir -p "$AGENT_DIR/.claude"
 
 [ ! -f "$AGENT_DIR/CLAUDE.md" ] && cat > "$AGENT_DIR/CLAUDE.md" << MD
@@ -218,23 +259,58 @@ JSON
 
 print_ok "Agent '${AGENT_NAME}' configured"
 
-# Step 5: Systemd
-print_header "Step 5: Auto-Start"
+# Step 6: Systemd
+print_header "Step 6: Auto-Start"
 if ask_yn "Install systemd service? (auto-start on boot)"; then
-    # Generate service file from template with correct paths
     UV_PATH=$(which uv 2>/dev/null || echo "${HOME}/.local/bin/uv")
-    sed -e "s|WorkingDirectory=.*|WorkingDirectory=${TARS_DIR}|" \
-        -e "s|ExecStart=.*|ExecStart=${UV_PATH} run python -m src.main|" \
-        "${TARS_DIR}/config/tars.service" > /etc/systemd/system/tars.service
-    systemctl daemon-reload
+
+    # Generate service file into overlay
+    sed -e "s|/opt/tars|${TARS_DIR}|g" \
+        -e "s|ExecStart=.*|ExecStart=${UV_PATH} run --no-sync python -m src.main|" \
+        -e "/^Environment=PATH=/a Environment=TARS_OVERLAY=${TARS_OVERLAY}" \
+        "${TARS_DIR}/config/tars.service" > "$TARS_OVERLAY/systemd/tars.service"
+
+    # Update ReadWritePaths to include overlay paths
+    sed -i "s|ReadWritePaths=.*|ReadWritePaths=${TARS_DIR}/data ${TARS_OVERLAY}/agents ${TARS_OVERLAY}/config ${TARS_OVERLAY}/tmp /tmp /home/tars/.cache /home/tars/.claude|" \
+        "$TARS_OVERLAY/systemd/tars.service"
+    sed -i "s|ReadOnlyPaths=.*|ReadOnlyPaths=${TARS_DIR} ${TARS_OVERLAY}|" \
+        "$TARS_OVERLAY/systemd/tars.service"
+
+    # Symlink to /etc/systemd/system/
+    sudo ln -sf "$TARS_OVERLAY/systemd/tars.service" /etc/systemd/system/tars.service
+
+    # Install core timers (symlink directly to Core)
+    for f in "$TARS_DIR"/config/timers/tars-*.service "$TARS_DIR"/config/timers/tars-*.timer; do
+        [ -f "$f" ] || continue
+        name=$(basename "$f")
+        # Render with correct paths
+        content=$(sed "s|/opt/tars|$TARS_DIR|g" "$f")
+        if [[ "$name" == *.service ]] && [ -n "$TARS_OVERLAY" ]; then
+            content=$(echo "$content" | sed "/Environment=TARS_HOME=/a Environment=TARS_OVERLAY=$TARS_OVERLAY")
+        fi
+        echo "$content" > "$TARS_OVERLAY/systemd/$name"
+        sudo ln -sf "$TARS_OVERLAY/systemd/$name" "/etc/systemd/system/$name"
+    done
+
+    sudo systemctl daemon-reload
     systemctl enable tars.service
     print_ok "Service installed (sudo systemctl start tars)"
+
+    # Enable timers
+    for timer in "$TARS_DIR"/config/timers/tars-*.timer; do
+        [ -f "$timer" ] || continue
+        name=$(basename "$timer")
+        sudo systemctl enable --now "$name" 2>/dev/null || true
+    done
+    print_ok "Timers installed"
 fi
 
 # Done
 print_header "Setup Complete!"
+echo -e "  ${BOLD}Core:${NC}        $TARS_DIR"
+echo -e "  ${BOLD}Overlay:${NC}     $TARS_OVERLAY"
 echo -e "  ${BOLD}Start:${NC}       uv run python -m src.main"
-echo -e "  ${BOLD}Or:${NC}          systemctl --user start tars.service"
+echo -e "  ${BOLD}Or:${NC}          sudo systemctl start tars"
 echo -e "  ${BOLD}Discord:${NC}     @${BOT_NAME} hello!"
 echo -e "  ${BOLD}Add keys:${NC}    .venv/bin/python vault-manage.py"
 echo -e "  ${BOLD}Tests:${NC}       .venv/bin/python scripts/test-tools.py"
