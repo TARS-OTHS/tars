@@ -376,8 +376,32 @@ JSON
 
 print_ok "Agent '${AGENT_NAME}' configured"
 
-# Step 7: Systemd
-print_header "Step 7: Auto-Start"
+# Step 7: Maintenance Timers
+print_header "Step 7: Maintenance Timers"
+print_step "Installing core timers (memory, health, integrity)..."
+
+for f in "$TARS_DIR"/config/timers/tars-*.service "$TARS_DIR"/config/timers/tars-*.timer; do
+    [ -f "$f" ] || continue
+    name=$(basename "$f")
+    content=$(sed "s|/opt/tars|$TARS_DIR|g" "$f")
+    if [[ "$name" == *.service ]] && [ -n "$TARS_OVERLAY" ]; then
+        content=$(echo "$content" | sed "/Environment=TARS_HOME=/a Environment=TARS_OVERLAY=$TARS_OVERLAY")
+    fi
+    echo "$content" > "$TARS_OVERLAY/systemd/$name"
+    sudo ln -sf "$TARS_OVERLAY/systemd/$name" "/etc/systemd/system/$name"
+done
+
+sudo systemctl daemon-reload
+
+for timer in "$TARS_DIR"/config/timers/tars-*.timer; do
+    [ -f "$timer" ] || continue
+    name=$(basename "$timer")
+    sudo systemctl enable --now "$name" 2>/dev/null || true
+done
+print_ok "Core timers installed"
+
+# Step 8: Auto-Start Service
+print_header "Step 8: Auto-Start"
 if ask_yn "Install systemd service? (auto-start on boot)"; then
     UV_PATH=$(which uv 2>/dev/null || echo "${HOME}/.local/bin/uv")
 
@@ -401,31 +425,9 @@ if ask_yn "Install systemd service? (auto-start on boot)"; then
 
     # Symlink to /etc/systemd/system/
     sudo ln -sf "$TARS_OVERLAY/systemd/tars.service" /etc/systemd/system/tars.service
-
-    # Install core timers (symlink directly to Core)
-    for f in "$TARS_DIR"/config/timers/tars-*.service "$TARS_DIR"/config/timers/tars-*.timer; do
-        [ -f "$f" ] || continue
-        name=$(basename "$f")
-        # Render with correct paths
-        content=$(sed "s|/opt/tars|$TARS_DIR|g" "$f")
-        if [[ "$name" == *.service ]] && [ -n "$TARS_OVERLAY" ]; then
-            content=$(echo "$content" | sed "/Environment=TARS_HOME=/a Environment=TARS_OVERLAY=$TARS_OVERLAY")
-        fi
-        echo "$content" > "$TARS_OVERLAY/systemd/$name"
-        sudo ln -sf "$TARS_OVERLAY/systemd/$name" "/etc/systemd/system/$name"
-    done
-
     sudo systemctl daemon-reload
     systemctl enable tars.service
     print_ok "Service installed (sudo systemctl start tars)"
-
-    # Enable timers
-    for timer in "$TARS_DIR"/config/timers/tars-*.timer; do
-        [ -f "$timer" ] || continue
-        name=$(basename "$timer")
-        sudo systemctl enable --now "$name" 2>/dev/null || true
-    done
-    print_ok "Timers installed"
 fi
 
 # Done
