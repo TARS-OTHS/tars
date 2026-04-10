@@ -63,7 +63,7 @@ else
 fi
 
 print_step "Installing Python dependencies..."
-uv sync 2>&1 | tail -1
+"$TARS_DIR/scripts/sync.sh"
 print_ok "Dependencies installed"
 
 # Step 2: Discord Bot

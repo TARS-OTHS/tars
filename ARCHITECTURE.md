@@ -504,26 +504,22 @@ journalctl -u tars -f
 
 ### Updating a Running Install
 
-After pulling new code, run `uv sync` **before** restarting the service:
+After pulling new code, run `scripts/sync.sh` **before** restarting the service:
 
 ```bash
 cd /opt/tars
 sudo -u tars git pull
-sudo -u tars uv sync                       # reconcile .venv with lockfile
-
-# If Layer 2 (TARS_OTHS) is configured and has a requirements.txt:
-for dir in ${TARS_OTHS//:/ }; do
-    [ -f "$(dirname "$dir")/requirements.txt" ] && sudo -u tars uv pip install -r "$(dirname "$dir")/requirements.txt"
-done
-
+sudo -u tars scripts/sync.sh              # install all layers
 sudo systemctl restart tars
 ```
 
-The service unit uses `uv run --no-sync` so that service start never writes to the sandboxed, read-only `.venv`. Dependency updates are therefore **explicit**: `uv sync` runs in a normal shell (where `.venv` is writable) before the restart.
+`scripts/sync.sh` runs `uv sync` (Core) then installs Layer 2 and Layer 3 `requirements.txt` files discovered via `TARS_OTHS` and `TARS_OVERLAY` env vars. If these aren't in the shell environment, the script falls back to reading them from the `tars.service` systemd unit — so the service unit is the single source of truth. No shell profile exports needed.
 
-Skipping `uv sync` after a dep change means the service will either crash on startup (`ImportError` for a new dep) or silently run stale code against a bumped version. `uv sync` is a no-op when nothing changed, so it's safe to run unconditionally as part of the deploy ritual.
+This ensures Layer 2 packages survive Core dependency reconciliation — bare `uv sync` actively removes packages it doesn't recognise.
 
-**Important**: `uv sync` only installs Core (Layer 1) dependencies from `pyproject.toml`. Layer 2 modules declare their own deps in `requirements.txt` — these must be installed separately with `uv pip install -r`. Without this step, `uv sync` will actively remove Layer 2 packages it doesn't recognise.
+The service unit uses `uv run --no-sync` so that service start never writes to the sandboxed, read-only `.venv`. Dependency updates are therefore **explicit**: `scripts/sync.sh` runs in a normal shell (where `.venv` is writable) before the restart.
+
+Skipping sync after a dep change means the service will either crash on startup (`ImportError` for a new dep) or silently run stale code against a bumped version. The script is a no-op when nothing changed, so it's safe to run unconditionally as part of the deploy ritual.
 
 ### Test Mode
 ```bash

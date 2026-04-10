@@ -27,7 +27,7 @@ Discord message → Router → Agent Manager → Claude Code CLI → MCP Tools �
 ```bash
 git clone https://github.com/TARS-OTHS/tars.git
 cd tars
-uv sync
+scripts/sync.sh            # install deps (all layers if TARS_OTHS/TARS_OVERLAY set)
 uv run python setup.py
 ```
 
