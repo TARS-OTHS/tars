@@ -17,8 +17,12 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Shared temp directory for agent-generated files (media, docs, scratch).
-# Falls back to /tmp if TARS_TMP is not set.
-TARS_TMP = Path(os.environ.get("TARS_TMP", "/tmp"))
+# Precedence: TARS_TMP env → TARS_OVERLAY/tmp → /tmp
+_tars_tmp = os.environ.get("TARS_TMP", "")
+if not _tars_tmp:
+    _overlay = os.environ.get("TARS_OVERLAY", "")
+    _tars_tmp = os.path.join(_overlay, "tmp") if _overlay else "/tmp"
+TARS_TMP = Path(_tars_tmp)
 
 
 def resolve_vault_key_file() -> Path:
