@@ -173,7 +173,7 @@ MCP:                  mcp-gateway (shared)            mcp-gateway (shared)
 
 # 2. Migrate config (does not touch existing TARS)
 cd /path/to/tars
-uv sync
+scripts/sync.sh
 python -m src.cli migrate --from /path/to/existing/tars
 
 # 3. Configure test bot token in your vault or .env
