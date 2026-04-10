@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from urllib.parse import urlencode, quote
 from urllib.error import URLError, HTTPError
 
-from src.core.base import ToolContext
+from src.core.base import ToolContext, TARS_TMP
 from src.core.tools import tool
 
 logger = logging.getLogger(__name__)
@@ -629,15 +629,19 @@ async def share_drive_file(ctx: ToolContext, file_id: str, email: str,
 
 
 @tool(name="drive_download", description="Download a file from Google Drive by file ID or URL", category="google")
-async def drive_download(ctx: ToolContext, file_id_or_url: str, output_dir: str = "/tmp") -> str:
+async def drive_download(ctx: ToolContext, file_id_or_url: str, output_dir: str = "") -> str:
     """Download a Google Drive file to local disk.
 
     Args:
         file_id_or_url: Drive file ID or share URL (e.g. https://drive.google.com/file/d/xxx/view)
-        output_dir: Where to save the file (default: /tmp)
+        output_dir: Where to save the file (default: $TARS_TMP/docs)
     """
     import re
     import aiohttp
+
+    if not output_dir:
+        output_dir = str(TARS_TMP / "docs")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     from src.tools.ingest import validate_file_path
     path_err = validate_file_path(output_dir)

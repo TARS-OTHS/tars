@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
-from src.core.base import ToolContext, PROJECT_ROOT
+from src.core.base import ToolContext, PROJECT_ROOT, TARS_TMP
 from src.core.tools import tool, get_all_tools
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ _PROJECT_ROOT = PROJECT_ROOT
 
 ALLOWED_PATH_ROOTS = (
     Path("/tmp"),
+    TARS_TMP,
     _PROJECT_ROOT / "agents",
     _PROJECT_ROOT / "data",
     _PROJECT_ROOT / "codex",
@@ -226,9 +227,11 @@ async def download_file(ctx: ToolContext, url: str, filename: str | None = None)
                     filename = filename.split("?")[0]
 
             suffix = Path(filename).suffix or ""
+            dl_dir = TARS_TMP / "scratch"
+            dl_dir.mkdir(parents=True, exist_ok=True)
             tmp = tempfile.NamedTemporaryFile(
                 delete=False, suffix=suffix, prefix="tars-dl-",
-                dir="/tmp",
+                dir=str(dl_dir),
             )
             tmp.write(data)
             tmp.close()

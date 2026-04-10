@@ -10,7 +10,7 @@ import shlex
 import tempfile
 from pathlib import Path
 
-from src.core.base import ToolContext
+from src.core.base import ToolContext, TARS_TMP
 from src.core.tools import tool
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,9 @@ async def video_frames(ctx: ToolContext, video_path: str, output_dir: str = "",
         return f"Video not found: {video_path}"
 
     if not output_dir:
-        output_dir = tempfile.mkdtemp(prefix="tars-frames-")
+        media_dir = TARS_TMP / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = tempfile.mkdtemp(prefix="tars-frames-", dir=str(media_dir))
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -72,7 +74,9 @@ async def video_clip(ctx: ToolContext, video_path: str, start: str, duration: st
         return f"Video not found: {video_path}"
 
     if not output_path:
-        fd, output_path = tempfile.mkstemp(prefix="tars-clip-", suffix=".mp4")
+        media_dir = TARS_TMP / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        fd, output_path = tempfile.mkstemp(prefix="tars-clip-", suffix=".mp4", dir=str(media_dir))
         os.close(fd)
 
     cmd = f"ffmpeg -i {shlex.quote(video_path)} -ss {shlex.quote(start)} -t {shlex.quote(duration)} -c copy {shlex.quote(output_path)} -y 2>&1"

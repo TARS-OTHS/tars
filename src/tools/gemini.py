@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
-from src.core.base import ToolContext, PROJECT_ROOT
+from src.core.base import ToolContext, PROJECT_ROOT, TARS_TMP
 from src.core.tools import tool
 
 logger = logging.getLogger(__name__)
@@ -287,8 +287,7 @@ async def gemini_generate_image(ctx: ToolContext, prompt: str, output_path: str 
         # Decode and save
         img_bytes = base64.b64decode(image_data["data"])
         if not output_path:
-            project_root = PROJECT_ROOT
-            out_dir = project_root / "data" / "generated"
+            out_dir = TARS_TMP / "media"
             out_dir.mkdir(parents=True, exist_ok=True)
             output_path = str(out_dir / f"{int(time.time())}.png")
 
