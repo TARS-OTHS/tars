@@ -103,8 +103,9 @@ class ClaudeCodeProvider(LLMProvider):
         logger.debug(f"Claude Code: cwd={cwd} model={resolved_model} prompt_len={len(prompt)}")
 
         was_resuming = "--resume" in args
-        max_attempts = 3
+        max_attempts = 4  # refresh+resume, resume-dropped fresh, backoff retry, give up
         proc = None
+        refreshed_token = False
 
         for attempt in range(1, max_attempts + 1):
             try:
@@ -145,20 +146,43 @@ class ClaudeCodeProvider(LLMProvider):
                     error_msg = stderr_text or error_detail or f"Exit code {proc.returncode}"
                     combined = f"{stderr_text} {error_detail}".lower()
                     is_auth_error = "401" in combined or "authentication" in combined or "not logged in" in combined
+                    is_dead_session = "no conversation found" in combined
+
+                    # Dead session — drop --resume immediately, no point retrying
+                    if is_dead_session and "--resume" in args:
+                        resume_idx = args.index("--resume")
+                        dead_id = args[resume_idx + 1] if resume_idx + 1 < len(args) else "unknown"
+                        args = [a for i, a in enumerate(args)
+                                if i != resume_idx and i != resume_idx + 1]
+                        logger.warning(
+                            f"Dead CLI session {dead_id} — dropping --resume, starting fresh"
+                        )
+                        continue
 
                     if is_auth_error:
-                        # Stage 1: If we were resuming, the session is likely stale — retry fresh
+                        # Stage 1: Force token refresh, retry with --resume intact
+                        if "--resume" in args and not refreshed_token:
+                            logger.warning(
+                                "Auth error with --resume — forcing token refresh, "
+                                "retrying with session intact..."
+                            )
+                            await self._force_token_refresh()
+                            refreshed_token = True
+                            continue
+
+                        # Stage 2: Token refresh didn't help — session is stale, drop --resume
                         if "--resume" in args:
                             resume_idx = args.index("--resume")
                             stale_id = args[resume_idx + 1] if resume_idx + 1 < len(args) else "unknown"
                             args = [a for i, a in enumerate(args)
                                     if i != resume_idx and i != resume_idx + 1]
                             logger.warning(
-                                f"Stale CLI session {stale_id} — dropping --resume, retrying fresh"
+                                f"Auth error persists after token refresh — "
+                                f"dropping stale session {stale_id}, retrying fresh"
                             )
                             continue
 
-                        # Stage 2: No resume involved — genuine auth/transient error, backoff and retry
+                        # Stage 3: No resume involved — genuine auth error, backoff and retry
                         if attempt < max_attempts:
                             logger.warning(
                                 f"Claude auth error (attempt {attempt}/{max_attempts}) — "
@@ -167,7 +191,7 @@ class ClaudeCodeProvider(LLMProvider):
                             await asyncio.sleep(5)
                             continue
 
-                        # Stage 3: All retries exhausted
+                        # Stage 4: All retries exhausted
                         logger.critical(
                             "Claude auth failed after all retries — token may be expired. "
                             "Fix: run 'claude setup-token' as the tars user, then restart."
@@ -188,10 +212,8 @@ class ClaudeCodeProvider(LLMProvider):
 
                 response = self._parse_response(stdout.decode())
 
-                # If we dropped --resume to recover from a stale session,
-                # clear the session_id so agent_manager knows to start fresh
+                # If we dropped --resume to recover, log the transition
                 if was_resuming and "--resume" not in args:
-                    response.session_id = response.session_id  # keep the new one
                     logger.info("Recovered from stale session — new session started")
 
                 return response
@@ -210,6 +232,27 @@ class ClaudeCodeProvider(LLMProvider):
                     content="Claude Code timed out. Try a simpler request.",
                     stop_reason="timeout",
                 )
+
+    async def _force_token_refresh(self) -> None:
+        """Force the CLI to refresh its OAuth access token.
+
+        Running 'claude auth status' triggers the CLI's internal token
+        refresh if the access token is expired but the refresh token is valid.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self._claude_bin, "auth", "status",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=self._build_env(),
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=15)
+            if proc.returncode == 0:
+                logger.info("Token refresh triggered via 'claude auth status'")
+            else:
+                logger.warning("Token refresh attempt returned non-zero — may still work")
+        except (asyncio.TimeoutError, FileNotFoundError) as e:
+            logger.warning(f"Token refresh attempt failed: {e}")
 
     def _build_prompt(self, messages: list[Message], resuming: bool = False) -> str:
         """Build a prompt string from messages.
