@@ -55,4 +55,10 @@ if [ -n "${TARS_OVERLAY:-}" ] && [ -f "$TARS_OVERLAY/requirements.txt" ]; then
     uv pip install -r "$TARS_OVERLAY/requirements.txt"
 fi
 
+# --- Agent temp dirs ---
+if [ -n "${TARS_OVERLAY:-}" ]; then
+    mkdir -p "$TARS_OVERLAY/tmp"/{media,docs,scratch}
+    echo "[sync] Agent tmp dirs ensured at $TARS_OVERLAY/tmp/"
+fi
+
 echo "[sync] Done"

@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 # This is the single source of truth. Import from here, don't recompute.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# Shared temp directory for agent-generated files (media, docs, scratch).
+# Falls back to /tmp if TARS_TMP is not set.
+TARS_TMP = Path(os.environ.get("TARS_TMP", "/tmp"))
+
 
 def resolve_vault_key_file() -> Path:
     """Resolve the vault key file path.
