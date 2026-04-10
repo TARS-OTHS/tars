@@ -523,7 +523,7 @@ The service unit uses `uv run --no-sync` so that service start never writes to t
 
 Skipping `uv sync` after a dep change means the service will either crash on startup (`ImportError` for a new dep) or silently run stale code against a bumped version. `uv sync` is a no-op when nothing changed, so it's safe to run unconditionally as part of the deploy ritual.
 
-**Important**: `uv sync` only installs Core (Layer 1) dependencies from `pyproject.toml`. Layer 2 modules may declare their own deps in `requirements.txt` — these must be installed separately with `uv pip install -r`. Without this step, `uv sync` will actively remove Layer 2 packages it doesn't recognise.
+**Important**: `uv sync` only installs Core (Layer 1) dependencies from `pyproject.toml`. Layer 2 modules declare their own deps in `requirements.txt` — these must be installed separately with `uv pip install -r`. Without this step, `uv sync` will actively remove Layer 2 packages it doesn't recognise.
 
 ### Test Mode
 ```bash
