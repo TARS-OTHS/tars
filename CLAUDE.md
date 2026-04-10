@@ -67,13 +67,13 @@ data/            — SQLite databases, audit logs, state (gitignored)
 ## Development
 
 ```bash
-uv sync                    # install deps
+scripts/sync.sh            # install deps (all layers)
 uv run python -m src.main  # run locally
 ```
 
 ## Deployment
 
-When updating a running install (`git pull` + restart), follow the ritual in [ARCHITECTURE.md → Operations → Updating a Running Install](ARCHITECTURE.md#updating-a-running-install). The `git pull` → `systemctl restart` shortcut is **wrong** — service units use `uv run --no-sync`, so you must run `sudo -u tars uv sync` between the pull and the restart or the service will crash on a new dep or silently run stale code.
+When updating a running install (`git pull` + restart), follow the ritual in [ARCHITECTURE.md → Operations → Updating a Running Install](ARCHITECTURE.md#updating-a-running-install). The `git pull` → `systemctl restart` shortcut is **wrong** — service units use `uv run --no-sync`, so you must run `sudo -u tars scripts/sync.sh` between the pull and the restart or the service will crash on a new dep or silently run stale code.
 
 ## File Ownership
 
