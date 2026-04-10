@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from src.core.base import ToolContext
+from src.core.base import ToolContext, TARS_TMP
 from src.core.tools import tool
 
 logger = logging.getLogger(__name__)
@@ -216,9 +216,11 @@ async def browser(
 
         elif action == "screenshot":
             screenshot_bytes = await page.screenshot(full_page=full_page)
-            # Save to tmp and return path for Gemini/vision analysis
+            # Save to TARS_TMP for Gemini/vision analysis
             import tempfile, os
-            fd, tmp = tempfile.mkstemp(prefix=f"browser_screenshot_{session}_", suffix=".png")
+            media_dir = TARS_TMP / "media"
+            media_dir.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(prefix=f"browser_screenshot_{session}_", suffix=".png", dir=str(media_dir))
             os.close(fd)
             path = Path(tmp)
             path.write_bytes(screenshot_bytes)
