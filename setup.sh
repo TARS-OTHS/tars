@@ -107,8 +107,125 @@ GITIGNORE
 
 print_ok "Overlay created at $TARS_OVERLAY"
 
-# Step 3: Discord Bot
-print_header "Step 3: Discord Bot"
+# Step 3: Tools & Skills
+print_header "Step 3: Tools & Skills"
+
+echo -e "  ${BOLD}Core tools (always included):${NC}"
+for py in "$TARS_DIR"/src/tools/*.py; do
+    [ -f "$py" ] || continue
+    name=$(basename "$py" .py)
+    [[ "$name" == __* ]] && continue
+    echo -e "    ${GREEN}✓${NC} $name"
+done
+
+CORE_SKILLS=()
+for yml in "$TARS_DIR"/skills/*.yaml "$TARS_DIR"/skills/*.yml; do
+    [ -f "$yml" ] || continue
+    name=$(basename "$yml" .yaml)
+    name=$(basename "$name" .yml)
+    CORE_SKILLS+=("$name")
+done
+if [ ${#CORE_SKILLS[@]} -gt 0 ]; then
+    echo -e "\n  ${BOLD}Core skills (always included):${NC}"
+    for s in "${CORE_SKILLS[@]}"; do
+        echo -e "    ${GREEN}✓${NC} $s"
+    done
+fi
+
+# Scan for Layer 2 modules
+TARS_OTHS_ROOT=""
+TARS_OTHS=""
+SELECTED_MODULES=()
+
+# Check common locations for Layer 2 modules
+for candidate in "$(dirname "$TARS_DIR")/tars-oths" "$(dirname "$TARS_DIR")/oths"; do
+    if [ -d "$candidate" ]; then
+        TARS_OTHS_ROOT="$candidate"
+        break
+    fi
+done
+
+if [ -z "$TARS_OTHS_ROOT" ]; then
+    echo ""
+    read -rp "  Path to extension modules (leave blank to skip): " TARS_OTHS_ROOT
+fi
+
+if [ -n "$TARS_OTHS_ROOT" ] && [ -d "$TARS_OTHS_ROOT" ]; then
+    echo -e "\n  ${BOLD}Available extension modules:${NC}"
+
+    AVAILABLE_MODULES=()
+    idx=1
+    for mod_dir in "$TARS_OTHS_ROOT"/*/; do
+        [ -d "$mod_dir" ] || continue
+        mod_name=$(basename "$mod_dir")
+
+        # Collect tools
+        mod_tools=""
+        if [ -d "$mod_dir/tools" ]; then
+            mod_tools=$(ls "$mod_dir/tools/"*.py 2>/dev/null | while read -r f; do
+                t=$(basename "$f" .py)
+                [[ "$t" == __* ]] && continue
+                echo -n "$t "
+            done)
+        fi
+
+        # Collect skills
+        mod_skills=""
+        if [ -d "$mod_dir/skills" ]; then
+            mod_skills=$(ls "$mod_dir/skills/"*.yaml "$mod_dir/skills/"*.yml 2>/dev/null | while read -r f; do
+                s=$(basename "$f" .yaml)
+                s=$(basename "$s" .yml)
+                echo -n "$s "
+            done)
+        fi
+
+        AVAILABLE_MODULES+=("$mod_name")
+        echo -e "\n    ${BOLD}[$idx] $mod_name${NC}"
+        [ -n "$mod_tools" ] && echo "        Tools:  $mod_tools"
+        [ -n "$mod_skills" ] && echo "        Skills: $mod_skills"
+        ((idx++))
+    done
+
+    if [ ${#AVAILABLE_MODULES[@]} -gt 0 ]; then
+        echo ""
+        echo "  Enter module numbers to enable (comma-separated), or 'all'."
+        read -rp "  Modules [none]: " MOD_CHOICE
+
+        if [ -n "$MOD_CHOICE" ]; then
+            if [ "$MOD_CHOICE" = "all" ]; then
+                SELECTED_MODULES=("${AVAILABLE_MODULES[@]}")
+            else
+                IFS=',' read -ra CHOICES <<< "$MOD_CHOICE"
+                for c in "${CHOICES[@]}"; do
+                    c=$(echo "$c" | tr -d ' ')
+                    if [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -ge 1 ] && [ "$c" -le ${#AVAILABLE_MODULES[@]} ]; then
+                        SELECTED_MODULES+=("${AVAILABLE_MODULES[$((c-1))]}")
+                    fi
+                done
+            fi
+        fi
+
+        if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+            # Build TARS_OTHS as colon-separated paths
+            oths_paths=()
+            for mod in "${SELECTED_MODULES[@]}"; do
+                oths_paths+=("$TARS_OTHS_ROOT/$mod")
+            done
+            TARS_OTHS=$(IFS=:; echo "${oths_paths[*]}")
+            echo ""
+            for mod in "${SELECTED_MODULES[@]}"; do
+                print_ok "Module: $mod"
+            done
+        else
+            print_ok "No extension modules selected (core tools only)"
+        fi
+    fi
+else
+    print_ok "No extension modules found (core tools only)"
+fi
+
+# Step 4: Discord Bot
+print_header "Step 4: Discord Bot"
 echo "  You need a Discord bot token. If you don't have one:"
 echo ""
 echo "  1. Go to https://discord.com/developers/applications"
@@ -135,8 +252,8 @@ if ask_yn "Got a bot token ready?"; then
     print_ok "Bot: $BOT_NAME"
 fi
 
-# Step 4: Vault
-print_header "Step 4: Encrypted Vault"
+# Step 5: Vault
+print_header "Step 5: Encrypted Vault"
 echo "  Your credentials are stored encrypted. Choose a passphrase."
 echo ""
 
@@ -157,8 +274,8 @@ else
     print_ok "Vault already exists"
 fi
 
-# Step 5: Configuration
-print_header "Step 5: Agent Configuration"
+# Step 6: Configuration
+print_header "Step 6: Agent Configuration"
 
 AGENT_NAME="main"
 ask "Name your agent (default: main)" AGENT_NAME_INPUT
@@ -259,8 +376,8 @@ JSON
 
 print_ok "Agent '${AGENT_NAME}' configured"
 
-# Step 6: Systemd
-print_header "Step 6: Auto-Start"
+# Step 7: Systemd
+print_header "Step 7: Auto-Start"
 if ask_yn "Install systemd service? (auto-start on boot)"; then
     UV_PATH=$(which uv 2>/dev/null || echo "${HOME}/.local/bin/uv")
 
@@ -269,6 +386,12 @@ if ask_yn "Install systemd service? (auto-start on boot)"; then
         -e "s|ExecStart=.*|ExecStart=${UV_PATH} run --no-sync python -m src.main|" \
         -e "/^Environment=PATH=/a Environment=TARS_OVERLAY=${TARS_OVERLAY}" \
         "${TARS_DIR}/config/tars.service" > "$TARS_OVERLAY/systemd/tars.service"
+
+    # Add TARS_OTHS if extension modules were selected
+    if [ -n "$TARS_OTHS" ]; then
+        sed -i "/^Environment=TARS_OVERLAY=/a Environment=TARS_OTHS=${TARS_OTHS}" \
+            "$TARS_OVERLAY/systemd/tars.service"
+    fi
 
     # Update ReadWritePaths to include overlay paths
     sed -i "s|ReadWritePaths=.*|ReadWritePaths=${TARS_DIR}/data ${TARS_OVERLAY}/agents ${TARS_OVERLAY}/config ${TARS_OVERLAY}/tmp /tmp /home/tars/.cache /home/tars/.claude|" \
@@ -309,6 +432,9 @@ fi
 print_header "Setup Complete!"
 echo -e "  ${BOLD}Core:${NC}        $TARS_DIR"
 echo -e "  ${BOLD}Overlay:${NC}     $TARS_OVERLAY"
+if [ -n "$TARS_OTHS" ]; then
+    echo -e "  ${BOLD}Modules:${NC}     ${SELECTED_MODULES[*]}"
+fi
 echo -e "  ${BOLD}Start:${NC}       uv run python -m src.main"
 echo -e "  ${BOLD}Or:${NC}          sudo systemctl start tars"
 echo -e "  ${BOLD}Discord:${NC}     @${BOT_NAME} hello!"
