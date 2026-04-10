@@ -27,11 +27,13 @@ Discord message → Router → Agent Manager → Claude Code CLI → MCP Tools �
 ```bash
 git clone https://github.com/TARS-OTHS/tars.git
 cd tars
-uv sync
+uv sync --extra analytics
 uv run python setup.py
 ```
 
 The setup wizard walks you through: vault creation, Discord bot connection, team setup, first agent configuration, HITL approval settings, and (optionally) downloading headless Chromium for the `browse_url` tool.
+
+> **Note on extras:** `--extra analytics` installs DuckDB for the ETL pipeline. Omit it if you don't need analytics/ETL.
 
 > **Note on the browser tool:** `uv sync` installs the Playwright Python package, but the Chromium binary (~170MB) is a separate download. The setup wizard offers to run `playwright install chromium` for you. To install it manually later:
 > ```bash
