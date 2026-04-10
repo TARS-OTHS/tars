@@ -102,7 +102,10 @@ class ClaudeCodeProvider(LLMProvider):
 
         logger.debug(f"Claude Code: cwd={cwd} model={resolved_model} prompt_len={len(prompt)}")
 
-        max_attempts = 2
+        was_resuming = "--resume" in args
+        max_attempts = 3
+        proc = None
+
         for attempt in range(1, max_attempts + 1):
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -141,19 +144,39 @@ class ClaudeCodeProvider(LLMProvider):
 
                     error_msg = stderr_text or error_detail or f"Exit code {proc.returncode}"
                     combined = f"{stderr_text} {error_detail}".lower()
-                    if "401" in combined or "authentication" in combined or "not logged in" in combined:
-                        if attempt < max_attempts:
-                            logger.warning("Claude auth error — retrying in 3s (may be transient)...")
-                            await asyncio.sleep(3)
+                    is_auth_error = "401" in combined or "authentication" in combined or "not logged in" in combined
+
+                    if is_auth_error:
+                        # Stage 1: If we were resuming, the session is likely stale — retry fresh
+                        if "--resume" in args:
+                            resume_idx = args.index("--resume")
+                            stale_id = args[resume_idx + 1] if resume_idx + 1 < len(args) else "unknown"
+                            args = [a for i, a in enumerate(args)
+                                    if i != resume_idx and i != resume_idx + 1]
+                            logger.warning(
+                                f"Stale CLI session {stale_id} — dropping --resume, retrying fresh"
+                            )
                             continue
+
+                        # Stage 2: No resume involved — genuine auth/transient error, backoff and retry
+                        if attempt < max_attempts:
+                            logger.warning(
+                                f"Claude auth error (attempt {attempt}/{max_attempts}) — "
+                                f"retrying in 5s..."
+                            )
+                            await asyncio.sleep(5)
+                            continue
+
+                        # Stage 3: All retries exhausted
                         logger.critical(
-                            "Claude auth failed after retry — token may be expired. "
+                            "Claude auth failed after all retries — token may be expired. "
                             "Fix: run 'claude setup-token' as the tars user, then restart."
                         )
                         return LLMResponse(
                             content="Authentication failed — the Claude token needs to be refreshed. An admin needs to run `claude setup-token`.",
                             stop_reason="error",
                         )
+
                     logger.error(
                         f"Claude Code failed (exit={proc.returncode}): {error_msg}"
                         + (f" | stdout: {stdout_text[:300]}" if stdout_text and not error_detail else "")
@@ -163,7 +186,15 @@ class ClaudeCodeProvider(LLMProvider):
                         stop_reason="error",
                     )
 
-                return self._parse_response(stdout.decode())
+                response = self._parse_response(stdout.decode())
+
+                # If we dropped --resume to recover from a stale session,
+                # clear the session_id so agent_manager knows to start fresh
+                if was_resuming and "--resume" not in args:
+                    response.session_id = response.session_id  # keep the new one
+                    logger.info("Recovered from stale session — new session started")
+
+                return response
 
             except FileNotFoundError:
                 logger.error(f"Claude Code CLI not found at '{self._claude_bin}'")
