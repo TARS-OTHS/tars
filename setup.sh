@@ -274,8 +274,44 @@ else
     print_ok "Vault already exists"
 fi
 
-# Step 6: Configuration
-print_header "Step 6: Agent Configuration"
+# Step 6: Context Compression
+print_header "Step 6: Context Compression"
+echo "  T.A.R.S can compress verbose context files (codex docs, skill prompts)"
+echo "  to reduce input tokens per agent message. Rule-based, no LLM calls."
+echo "  CLAUDE.md files are excluded — they're carefully tuned prompts."
+echo ""
+
+COMPRESSION_ENABLED="false"
+COMPRESSION_LEVEL="standard"
+MEMORY_RECALL="false"
+
+if ask_yn "Enable context compression?"; then
+    COMPRESSION_ENABLED="true"
+    echo ""
+    echo "  Compression levels:"
+    echo "    1) lite     — filler phrases only"
+    echo "    2) standard — filler + contractions (recommended)"
+    read -rp "  Level [standard]: " COMP_LEVEL_INPUT
+    case "${COMP_LEVEL_INPUT:-2}" in
+        1|lite) COMPRESSION_LEVEL="lite" ;;
+        *) COMPRESSION_LEVEL="standard" ;;
+    esac
+    print_ok "Context compression: $COMPRESSION_LEVEL"
+
+    echo ""
+    echo "  Memory recall compression strips filler from memories before"
+    echo "  injecting them into agent context. Same rules, applied at runtime."
+    echo ""
+    if ask_yn "Enable memory recall compression?"; then
+        MEMORY_RECALL="true"
+        print_ok "Memory recall compression enabled"
+    fi
+else
+    print_ok "Compression skipped (can enable later in config.yaml)"
+fi
+
+# Step 7: Configuration
+print_header "Step 7: Agent Configuration"
 
 AGENT_NAME="main"
 ask "Name your agent (default: main)" AGENT_NAME_INPUT
@@ -314,6 +350,11 @@ security:
     mode: log
     defaults:
       max_per_hour: 100
+
+  compression:
+    enabled: ${COMPRESSION_ENABLED}
+    level: ${COMPRESSION_LEVEL}
+    memory_recall: ${MEMORY_RECALL}
 
 admin_users:
   discord: ["${USER_ID:-YOUR_USER_ID}"]
@@ -376,8 +417,8 @@ JSON
 
 print_ok "Agent '${AGENT_NAME}' configured"
 
-# Step 7: Maintenance Timers
-print_header "Step 7: Maintenance Timers"
+# Step 8: Maintenance Timers
+print_header "Step 8: Maintenance Timers"
 print_step "Installing core timers (memory, health, integrity)..."
 
 for f in "$TARS_DIR"/config/timers/tars-*.service "$TARS_DIR"/config/timers/tars-*.timer; do
@@ -400,8 +441,8 @@ for timer in "$TARS_DIR"/config/timers/tars-*.timer; do
 done
 print_ok "Core timers installed"
 
-# Step 8: Auto-Start Service
-print_header "Step 8: Auto-Start"
+# Step 9: Auto-Start Service
+print_header "Step 9: Auto-Start"
 if ask_yn "Install systemd service? (auto-start on boot)"; then
     UV_PATH=$(which uv 2>/dev/null || echo "${HOME}/.local/bin/uv")
 

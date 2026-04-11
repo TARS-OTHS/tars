@@ -348,8 +348,41 @@ def step_hitl(state: dict):
     ok(f"HITL: {len(approvers)} approver(s), {len(gated)} gated tool(s)")
 
 
+def step_compression(state: dict):
+    header("Step 6: Context Compression (optional)")
+    info("T.A.R.S can compress verbose context files (codex docs, skill prompts)")
+    info("to reduce input tokens per agent message. Rule-based, no LLM calls.")
+    info("CLAUDE.md files are excluded — they're carefully tuned prompts.")
+    print()
+
+    compression = {"enabled": False, "level": "standard"}
+
+    if ask_yn("Enable context compression?", default=False):
+        compression["enabled"] = True
+        compression["level"] = ask_choice(
+            "Compression level",
+            ["lite", "standard"],
+            default="standard",
+        )
+        ok(f"Context compression enabled ({compression['level']})")
+
+        print()
+        info("Memory recall compression strips filler from memories before")
+        info("injecting them into agent context. Same rules, applied at runtime.")
+        print()
+        if ask_yn("Enable memory recall compression?", default=False):
+            compression["memory_recall"] = True
+            ok("Memory recall compression enabled")
+        else:
+            compression["memory_recall"] = False
+    else:
+        info("Skipped — can be enabled later in config.yaml")
+
+    state["compression"] = compression
+
+
 def step_generate(state: dict):
-    header("Step 6: Generating Config Files")
+    header("Step 7: Generating Config Files")
 
     agent = state["agent"]
     owner = state["owner"]
@@ -388,6 +421,7 @@ def step_generate(state: dict):
                 "gated_tools": hitl["gated_tools"],
             },
             "rate_limits": {"mode": "log", "defaults": {"max_per_hour": 100}},
+            "compression": state.get("compression", {"enabled": False, "level": "standard"}),
         },
         "admin_users": {"discord": [owner_discord]},
     }
@@ -487,7 +521,7 @@ The team roster is at `config/team.json`. User context is injected before each m
 
 
 def step_extras(state: dict):
-    header("Step 7: Additional Setup (optional)")
+    header("Step 8: Additional Setup (optional)")
 
     while True:
         print()
@@ -612,7 +646,7 @@ def _add_bot(state: dict):
 
 
 def step_browser(state: dict):
-    header("Step 8: Browser Tool (optional)")
+    header("Step 9: Browser Tool (optional)")
     info("The browse_url tool uses a headless Chromium browser via Playwright")
     info("to fetch JavaScript-rendered pages. The Python package is already")
     info("installed; Chromium itself is a separate ~170MB download.")
@@ -730,6 +764,7 @@ def main():
         step_team,
         step_agent,
         step_hitl,
+        step_compression,
         step_generate,
         step_extras,
         step_browser,
