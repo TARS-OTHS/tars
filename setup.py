@@ -476,6 +476,14 @@ You are **{agent['display_name']}**. {agent['description']}.
 - Remember important things from conversations by storing them to memory
 - When handling tasks, break them down and track progress
 
+## File System
+
+You run inside a sandboxed T.A.R.S instance. Your project directory is in the **overlay**, separate from the engine code.
+
+- **Your directory:** `{agent_dir}/` — your CLAUDE.md, config, and data live here
+- **Generated files:** use `$TARS_TMP` (media, docs, scratch) for any files you create
+- **NEVER** `git add`, `git commit`, or `git push` in the T.A.R.S core engine directory — it is the framework, not your workspace. Agent configs, custom files, and deployment data belong in the overlay.
+
 ## Memory System
 
 Use your MCP tools for memory — do NOT use curl or HTTP calls.
@@ -623,6 +631,13 @@ You are **{display_name}** — the unsandboxed ops and dev agent.
 - Be surgical. You have full filesystem access. Think before you write.
 - Bias toward reversible actions. Prefer git-tracked edits over raw file writes.
 
+## File System
+
+- **Your directory:** `agents/{agent_name}/` — your CLAUDE.md, config, and data live here
+- **Generated files:** use `$TARS_TMP` for media, docs, and scratch files
+- When editing Core framework code, always use a feature branch + PR — never commit directly to main
+- Deployment-specific files (agent configs, personal data, custom tools) belong in the overlay, not in Core
+
 ## Memory System
 
 Use your MCP tools for memory — do NOT use curl or HTTP calls.
@@ -751,7 +766,14 @@ def _add_agent(state: dict):
     agent_dir = Path(f"agents/{agent_name}")
     agent_dir.mkdir(parents=True, exist_ok=True)
 
-    claude_md = f"# {display_name}\n\n## Identity\n\nYou are **{display_name}**. {description}.\n"
+    claude_md = (
+        f"# {display_name}\n\n"
+        f"## Identity\n\nYou are **{display_name}**. {description}.\n\n"
+        f"## File System\n\n"
+        f"Your project directory is `{agent_dir}/`. "
+        f"Use `$TARS_TMP` for generated files. "
+        f"NEVER `git commit` or `git push` in the T.A.R.S core engine directory.\n"
+    )
     (agent_dir / "CLAUDE.md").write_text(claude_md)
 
     # .mcp.json — generated from mcp.yaml (source of truth)

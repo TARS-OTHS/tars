@@ -120,6 +120,22 @@ if git -C "$TARS_DIR" remote get-url origin &>/dev/null; then
     echo -e "  ${DIM}Maintainers:   git remote rename upstream origin${NC}"
 fi
 
+# Install git hooks in Core repo to prevent accidental commits
+if [ -d "$TARS_DIR/hooks" ]; then
+    for hook in "$TARS_DIR"/hooks/*; do
+        [ -f "$hook" ] || continue
+        hook_name=$(basename "$hook")
+        target="$TARS_DIR/.git/hooks/$hook_name"
+        if [ ! -f "$target" ]; then
+            cp "$hook" "$target"
+            chmod +x "$target"
+            print_ok "Installed git hook: $hook_name"
+        else
+            echo -e "  ${DIM}Hook already exists: $hook_name (skipped)${NC}"
+        fi
+    done
+fi
+
 # Step 3: Tools & Skills
 print_header "Step 3: Tools & Skills"
 
@@ -404,6 +420,12 @@ You are **${AGENT_NAME^}**, a helpful AI assistant on Discord.
 - Be concise and direct
 - Search memory before asking for context you might already have
 - Store important things to memory for future reference
+
+## File System
+
+Your project directory is \`${AGENT_DIR}/\`. Use \`\$TARS_TMP\` for generated files.
+
+**NEVER** \`git add\`, \`git commit\`, or \`git push\` in the T.A.R.S core engine directory — it is the framework, not your workspace. Agent configs, custom files, and deployment data belong in the overlay.
 MD
 
 [ ! -f "$AGENT_DIR/.mcp.json" ] && cat > "$AGENT_DIR/.mcp.json" << JSON
