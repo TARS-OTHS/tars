@@ -18,7 +18,10 @@ from pathlib import Path
 
 # Resolve project root (parent of scripts/)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_DIR = PROJECT_ROOT / "config"
+
+# Overlay deployments set TARS_OVERLAY — config lives there, not in core
+_OVERLAY = os.environ.get("TARS_OVERLAY")
+CONFIG_DIR = Path(_OVERLAY) / "config" if _OVERLAY else PROJECT_ROOT / "config"
 
 try:
     import yaml
@@ -677,31 +680,37 @@ The team roster is at `config/team.json`. User context is injected before each m
         ok(f"Created {agent_dir.relative_to(PROJECT_ROOT)}/CLAUDE.md")
 
     # .mcp.json
-    mcp_json = {
-        "mcpServers": {
-            "tars-tools": {
-                "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
-                "args": ["-m", "src.mcp_server"],
-                "cwd": str(PROJECT_ROOT),
+    mcp_path = agent_dir / ".mcp.json"
+    if mcp_path.exists():
+        warn(f".mcp.json already exists — skipping (won't overwrite)")
+    else:
+        mcp_json = {
+            "mcpServers": {
+                "tars-tools": {
+                    "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
+                    "args": ["-m", "src.mcp_server"],
+                    "cwd": str(PROJECT_ROOT),
+                }
             }
         }
-    }
-    mcp_path = agent_dir / ".mcp.json"
-    mcp_path.write_text(json.dumps(mcp_json, indent=2) + "\n")
-    ok(f"Created {agent_dir.relative_to(PROJECT_ROOT)}/.mcp.json")
+        mcp_path.write_text(json.dumps(mcp_json, indent=2) + "\n")
+        ok(f"Created {agent_dir.relative_to(PROJECT_ROOT)}/.mcp.json")
 
     # .claude/settings.json
     claude_dir = agent_dir / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
-    settings = {
-        "permissions": {
-            "allow": ["mcp__tars-tools__*"],
-            "deny": [],
-        }
-    }
     settings_path = claude_dir / "settings.json"
-    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
-    ok(f"Created {agent_dir.relative_to(PROJECT_ROOT)}/.claude/settings.json")
+    if settings_path.exists():
+        warn(f".claude/settings.json already exists — skipping (won't overwrite)")
+    else:
+        settings = {
+            "permissions": {
+                "allow": ["mcp__tars-tools__*"],
+                "deny": [],
+            }
+        }
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        ok(f"Created {agent_dir.relative_to(PROJECT_ROOT)}/.claude/settings.json")
 
     print()
     ok(f"Agent '{display_name}' created — directory: agents/{agent_name}/")

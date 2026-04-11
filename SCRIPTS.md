@@ -14,6 +14,12 @@ Creates venv, installs deps, sets up service account and systemd service.
 ./setup.sh
 ```
 
+### `scripts/settings.py` — Interactive Settings Manager
+Post-install TUI for viewing and modifying all T.A.R.S configuration. Menu-driven — covers LLM defaults, connectors, session, memory, HITL, rate limits, compression, admin users, vault secrets, agent overview, and agent creation.
+```bash
+uv run python scripts/settings.py
+```
+
 ### `vault-manage.py` — Interactive Vault Manager
 Manage encrypted secrets (add, update, delete, list, check).
 ```bash
