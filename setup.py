@@ -1008,10 +1008,10 @@ def step_systemd(state: dict):
         info("You'll need to symlink them to /etc/systemd/system/ manually")
         print()
 
-    # --- Timers (always installed — required for memory decay, health, integrity) ---
+    # --- Generate timer unit files (required for memory decay, health, integrity) ---
     timers_dir = PROJECT_ROOT / "config" / "timers"
     if timers_dir.exists():
-        info("Installing maintenance timers (memory, health, integrity)...")
+        info("Generating maintenance timer units...")
         for f in sorted(timers_dir.iterdir()):
             if not f.is_file():
                 continue
@@ -1031,25 +1031,13 @@ def step_systemd(state: dict):
             out_path = overlay / "systemd" / f.name
             out_path.write_text(content)
 
-            if has_sudo:
-                target = f"/etc/systemd/system/{f.name}"
-                subprocess.run(
-                    ["sudo", "-n", "ln", "-sf", str(out_path), target],
-                    capture_output=True,
-                )
+        ok(f"Timer units written to {_display(overlay / 'systemd')}")
 
-        if has_sudo:
-            subprocess.run(["sudo", "-n", "systemctl", "daemon-reload"], capture_output=True)
-            for timer in timers_dir.glob("*.timer"):
-                subprocess.run(
-                    ["sudo", "-n", "systemctl", "enable", "--now", timer.name],
-                    capture_output=True,
-                )
-        ok("Timers installed")
-
-    # --- Main service ---
+    # --- Generate main service unit file ---
+    install_service = False
     print()
     if ask_yn("Install systemd service? (auto-start on boot)"):
+        install_service = True
         uv_path = shutil.which("uv") or f"{Path.home()}/.local/bin/uv"
         template_path = PROJECT_ROOT / "config" / "tars.service"
 
@@ -1094,21 +1082,31 @@ def step_systemd(state: dict):
         out_path.write_text(service)
         ok(f"Service file: {_display(out_path)}")
 
-        if has_sudo:
-            subprocess.run(
-                ["sudo", "-n", "ln", "-sf", str(out_path), "/etc/systemd/system/tars.service"],
-                capture_output=True,
-            )
-            subprocess.run(["sudo", "-n", "systemctl", "daemon-reload"], capture_output=True)
-            subprocess.run(
-                ["sudo", "-n", "systemctl", "enable", "tars.service"],
-                capture_output=True,
-            )
-            ok("Service installed — start with: sudo systemctl start tars")
+    # --- Install into systemd (bash script handles symlinks, reload, enable) ---
+    install_script = PROJECT_ROOT / "scripts" / "install-systemd.sh"
+    if has_sudo and install_script.exists():
+        info("Installing units into systemd...")
+        cmd = ["sudo", "-n", "bash", str(install_script), str(overlay)]
+        if install_service:
+            cmd.append("--enable-service")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            if result.stdout.strip():
+                for line in result.stdout.strip().split("\n"):
+                    info(line.strip())
+            ok("Systemd units installed and timers enabled")
+            if install_service:
+                ok("Service enabled — start with: sudo systemctl start tars")
         else:
-            info(f"Symlink manually: sudo ln -sf {out_path} /etc/systemd/system/tars.service")
+            err("Systemd installation failed:")
+            if result.stderr.strip():
+                for line in result.stderr.strip().split("\n"):
+                    err(f"  {line}")
+    elif not has_sudo:
+        warn("No sudo — unit files generated but not installed")
+        info(f"Install manually: sudo bash {install_script} {overlay}")
     else:
-        info("Skipped service installation")
+        warn(f"Install script not found: {install_script}")
 
 
 def step_browser(state: dict):

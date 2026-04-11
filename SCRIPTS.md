@@ -75,10 +75,17 @@ source scripts/lib-alert.sh
 send_alert "Something happened"
 ```
 
-### `scripts/install-timers.sh` — Timer Installer
+### `scripts/install-timers.sh` — Timer Installer (legacy)
 Installs all systemd timer+service files from `config/timers/`.
 ```bash
 sudo scripts/install-timers.sh
+```
+
+### `scripts/install-systemd.sh` — Systemd Unit Installer
+Symlinks generated unit files (timers + service) into `/etc/systemd/system/`, runs daemon-reload, enables timers. Called by `setup.py` automatically.
+```bash
+# Called by setup.py, or run manually:
+sudo bash scripts/install-systemd.sh <overlay-dir> [--enable-service]
 ```
 
 ### `scripts/compress-context.sh` — Context Compression
