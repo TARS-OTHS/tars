@@ -79,12 +79,12 @@ Layer 3 (Overlay): /opt/tars-overlay    ← This deployment's config, agents, da
 | Layer | Contains | Git workflow | Env var |
 |-------|----------|-------------|---------|
 | **Core** | `src/`, generic tools, skills, scripts, systemd templates | Branch + PR + cross-review | — |
-| **Layer 2** | Domain tools/skills in per-module dirs (e.g. `amazon/`, `triage/`) | Self-merge OK | `TARS_OTHS` |
+| **Layer 2** | Domain tools/skills in per-module dirs (e.g. `crm/`, `analytics/`) | Self-merge OK | `TARS_OTHS` |
 | **Overlay** | `config/`, `agents/`, `systemd/`, `data/`, agent identities | Direct push | `TARS_OVERLAY` |
 
 **What goes where:**
 - Engine code, generic tools → Core
-- Domain tools (Amazon, Trello digest, ETL) → Layer 2
+- Domain tools (custom integrations, business logic) → Layer 2
 - `config.yaml`, `agents.yaml`, `team.json`, agent CLAUDE.md files, service units → Overlay
 - Personal names, Discord IDs, API keys, company data → **never in Core or Layer 2**
 
