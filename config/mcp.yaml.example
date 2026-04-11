@@ -1,0 +1,23 @@
+# MCP Server definitions — source of truth for all MCP connections.
+# .mcp.json files are generated from this file (run setup or install_mcp).
+#
+# Supported transports:
+#   stdio  — local subprocess (command + args)
+#   sse    — remote Server-Sent Events (url + optional headers)
+
+servers:
+  tars-tools:
+    transport: stdio
+    command: /opt/tars/.venv/bin/python3
+    args: ["-m", "src.mcp_server"]
+    cwd: /opt/tars
+    # env:                          # Optional: per-server env vars
+    #   TARS_PROFILE: rescue
+
+  # Example: remote MCP server
+  # kapoq:
+  #   transport: sse
+  #   url: "https://mcp.kapoq.com/mcp"
+  #   headers:
+  #     Authorization: "Bearer <token>"
+  #   description: "Kapoq Amazon data warehouse"
