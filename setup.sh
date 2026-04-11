@@ -107,6 +107,19 @@ GITIGNORE
 
 print_ok "Overlay created at $TARS_OVERLAY"
 
+# Neutralise Core remote — prevent accidental pushes to the upstream repo.
+# Renames origin → upstream (so `git pull upstream main` still works for updates)
+# and blocks push on that remote. Maintainers can restore with:
+#   git remote rename upstream origin
+#   git remote set-url --push origin <url>
+if git -C "$TARS_DIR" remote get-url origin &>/dev/null; then
+    git -C "$TARS_DIR" remote rename origin upstream 2>/dev/null || true
+    git -C "$TARS_DIR" remote set-url --push upstream no-push 2>/dev/null || true
+    print_ok "Core remote: origin → upstream (push disabled)"
+    echo -e "  ${DIM}Pull updates:  git pull upstream main${NC}"
+    echo -e "  ${DIM}Maintainers:   git remote rename upstream origin${NC}"
+fi
+
 # Step 3: Tools & Skills
 print_header "Step 3: Tools & Skills"
 
