@@ -321,26 +321,83 @@ async def browse_url(
 
 @tool(
     name="install_mcp",
-    description="Connect a new MCP server — its tools become available automatically",
+    description="Connect a new MCP server — its tools become available to all agents automatically",
     category="system",
     hitl=True,
 )
 async def install_mcp(
     ctx: ToolContext,
     name: str,
-    url: str,
     transport: str = "sse",
+    url: str = "",
+    command: str = "",
+    args: str = "",
+    cwd: str = "",
+    headers: str = "",
+    description: str = "",
 ) -> str:
-    """Add an MCP server to the system. Its tools will auto-surface.
+    """Add an MCP server. Writes to mcp.yaml and regenerates .mcp.json for all agents.
+
+    For remote servers (sse):
+        install_mcp(name="kapoq", url="https://mcp.kapoq.com/mcp")
+        install_mcp(name="kapoq", url="https://...", headers="Authorization: Bearer token123")
+
+    For local servers (stdio):
+        install_mcp(name="fs", transport="stdio", command="npx", args="@modelcontextprotocol/server-filesystem /home/docs")
 
     Args:
-        name: Server name (e.g. 'google-workspace')
-        url: Server URL (e.g. 'http://localhost:12008')
-        transport: Connection type ('sse' or 'stdio')
+        name: Server name (e.g. 'kapoq', 'google-workspace')
+        transport: 'sse' for remote, 'stdio' for local subprocess
+        url: Server URL (required for sse)
+        command: Executable path (required for stdio)
+        args: Space-separated arguments for stdio command
+        cwd: Working directory for stdio server
+        headers: HTTP headers as 'Key: Value' lines (one per line, for sse auth)
+        description: Human-readable description of the server
     """
+    import json as _json
     from src.core.digest import ingest_mcp_server
-    ingest_mcp_server(name, url, transport)
-    return f"MCP server '{name}' added at {url} (transport: {transport}). Reconnect needed for tools to appear."
+
+    # Parse headers from "Key: Value" lines
+    parsed_headers = {}
+    if headers:
+        for line in headers.strip().splitlines():
+            if ": " in line:
+                k, v = line.split(": ", 1)
+                parsed_headers[k.strip()] = v.strip()
+
+    # Parse args from space-separated string
+    parsed_args = args.split() if args else None
+
+    try:
+        ingest_mcp_server(
+            name,
+            transport=transport,
+            url=url,
+            command=command,
+            args=parsed_args,
+            cwd=cwd,
+            headers=parsed_headers or None,
+            description=description,
+        )
+    except ValueError as e:
+        return f"Error: {e}"
+
+    # Verify by reading back
+    from src.core.digest import _load_mcp_servers
+    servers = _load_mcp_servers()
+    server = servers.get(name, {})
+
+    result = f"MCP server **{name}** installed ({transport}).\n"
+    if url:
+        result += f"URL: {url}\n"
+    if command:
+        result += f"Command: {command} {args}\n"
+    if parsed_headers:
+        result += f"Auth: {len(parsed_headers)} header(s) configured\n"
+
+    result += "\n.mcp.json regenerated for all agents. Restart agents to connect."
+    return result
 
 
 @tool(

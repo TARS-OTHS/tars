@@ -491,17 +491,10 @@ The team roster is at `config/team.json`. User context is injected before each m
 """
     _write_file(agent_dir / "CLAUDE.md", claude_md, state)
 
-    # .mcp.json
-    mcp_json = {
-        "mcpServers": {
-            "tars-tools": {
-                "command": str(project_root / ".venv" / "bin" / "python3"),
-                "args": ["-m", "src.mcp_server"],
-                "cwd": str(project_root),
-            }
-        }
-    }
-    _write_json(str(agent_dir / ".mcp.json"), mcp_json, state)
+    # .mcp.json — generated from mcp.yaml (source of truth)
+    _ensure_mcp_yaml(project_root, state)
+    from src.core.digest import regenerate_mcp_json
+    regenerate_mcp_json()
 
     # .claude/settings.json
     claude_dir = agent_dir / ".claude"
@@ -607,16 +600,9 @@ def _add_agent(state: dict):
     claude_md = f"# {display_name}\n\n## Identity\n\nYou are **{display_name}**. {description}.\n"
     (agent_dir / "CLAUDE.md").write_text(claude_md)
 
-    mcp_json = {
-        "mcpServers": {
-            "tars-tools": {
-                "command": str(project_root / ".venv" / "bin" / "python3"),
-                "args": ["-m", "src.mcp_server"],
-                "cwd": str(project_root),
-            }
-        }
-    }
-    (agent_dir / ".mcp.json").write_text(json.dumps(mcp_json, indent=2) + "\n")
+    # .mcp.json — generated from mcp.yaml (source of truth)
+    from src.core.digest import regenerate_mcp_json
+    regenerate_mcp_json()
 
     claude_dir = agent_dir / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
@@ -708,6 +694,27 @@ def step_summary(state: dict):
 
 
 # --- File writers ---
+
+def _ensure_mcp_yaml(project_root: Path, state: dict):
+    """Create mcp.yaml with tars-tools if it doesn't exist."""
+    mcp_path = Path("config/mcp.yaml")
+    if mcp_path.exists():
+        return  # Don't overwrite — may have user-added servers
+
+    mcp_config = {
+        "servers": {
+            "tars-tools": {
+                "transport": "stdio",
+                "command": str(project_root / ".venv" / "bin" / "python3"),
+                "args": ["-m", "src.mcp_server"],
+                "cwd": str(project_root),
+            }
+        }
+    }
+    mcp_path.parent.mkdir(parents=True, exist_ok=True)
+    mcp_path.write_text(yaml.dump(mcp_config, default_flow_style=False, sort_keys=False))
+    ok("Created config/mcp.yaml")
+
 
 def _write_yaml(path: str, data: dict, state: dict):
     p = Path(path)
