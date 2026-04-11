@@ -45,6 +45,7 @@ src/
   memory/        — one file per backend (sqlite.py, etc.)
   vault/         — credential encryption (fernet.py)
   tools/         — @tool decorated functions, auto-discovered
+  lib/           — shared libraries (compressor.py)
   auth/          — OAuth2 token refresh, etc.
   apis/          — @api decorated inbound webhooks
 config/          — YAML: config.yaml, agents.yaml, mcp.yaml
@@ -104,7 +105,7 @@ The engine discovers Layer 2 and 3 via env vars:
 ### What belongs in Core (this repo)
 
 - Framework code: `src/core/`, `src/connectors/`, `src/llm/`, `src/memory/`, `src/vault/`, `src/auth/`
-- Generic tools usable by any deployment: memory, team, web, browser, google, trello, notion, cloudflare, discord, gemini, audio, video, tmux, ingest
+- Generic tools usable by any deployment: memory, team, web, browser, google, trello, notion, cloudflare, discord, gemini, audio, video, tmux, ingest, compress
 - Generic skills, MCP server, setup wizard, scripts, timers
 - Example configs only (`config/*.example`, `agents/rescue/CLAUDE.md.example`)
 
