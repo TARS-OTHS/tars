@@ -994,7 +994,7 @@ def step_extras(state: dict):
 
 
 def step_systemd(state: dict):
-    header("Step 14: Systemd Services (optional)")
+    header("Step 14: Systemd Services")
 
     if not shutil.which("systemctl"):
         info("systemd not available — skipping")
@@ -1008,9 +1008,10 @@ def step_systemd(state: dict):
         info("You'll need to symlink them to /etc/systemd/system/ manually")
         print()
 
-    # --- Timers ---
+    # --- Timers (always installed — required for memory decay, health, integrity) ---
     timers_dir = PROJECT_ROOT / "config" / "timers"
-    if timers_dir.exists() and ask_yn("Install maintenance timers (health, memory, integrity)?"):
+    if timers_dir.exists():
+        info("Installing maintenance timers (memory, health, integrity)...")
         for f in sorted(timers_dir.iterdir()):
             if not f.is_file():
                 continue
@@ -1045,8 +1046,6 @@ def step_systemd(state: dict):
                     capture_output=True,
                 )
         ok("Timers installed")
-    else:
-        info("Skipped timers")
 
     # --- Main service ---
     print()
