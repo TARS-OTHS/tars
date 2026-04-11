@@ -750,6 +750,188 @@ def view_agents():
         print()
 
 
+def create_ops_instance():
+    """Guided setup for the dual-instance (sandboxed + privileged ops) pattern."""
+    header("Create Privileged Ops Instance")
+    info("This sets up the dual-instance deployment pattern:")
+    info("  Main instance  — sandboxed, runs user-facing agents")
+    info("  Ops instance   — unsandboxed, single privileged agent for dev/ops")
+    info("")
+    info("The ops agent can edit code, restart services, and run deploys.")
+    info("Only the system owner should have access to it.")
+    print()
+
+    # Check if rescue profile already exists
+    rescue_yaml = CONFIG_DIR / "agents.rescue.yaml"
+    rescue_service = PROJECT_ROOT / "config" / "tars-rescue.service"
+
+    if rescue_yaml.exists():
+        warn(f"agents.rescue.yaml already exists at {rescue_yaml}")
+        if not ask_yn("Overwrite and reconfigure?", default=False):
+            return
+    print()
+
+    # Agent name
+    agent_name = ask("Agent internal name", "engineer")
+    display_name = ask("Display name", agent_name.capitalize() + " Bot")
+    description = ask("Description", "Privileged ops agent — unsandboxed, owner-only")
+    model = ask_choice("Model", ["sonnet", "opus", "haiku"], default="opus")
+
+    # Bot account
+    cfg = load_config()
+    discord_accounts = list(
+        cfg.get("connectors", {}).get("discord", {}).get("accounts", {}).keys()
+    )
+
+    print()
+    info("The ops agent needs its own Discord bot account so it has a")
+    info("separate identity from your user-facing agents.")
+    print()
+
+    if ask_yn("Create a new Discord bot account for this agent?", default=True):
+        bot_name = ask("Bot account name", agent_name)
+        vault = get_vault()
+        if vault:
+            token = ask_secret(f"Discord bot token for '{bot_name}'")
+            if token:
+                info("Validating token...")
+                bot_info = validate_discord_token(token)
+                if bot_info:
+                    ok(f"Bot verified: {bot_info.get('username', '?')}")
+                else:
+                    if not ask_yn("Validation failed. Store anyway?", default=False):
+                        warn("Skipped token — add it later via vault.")
+                        token = None
+                if token:
+                    vault_key = f"discord-{bot_name}"
+                    vault.set(vault_key, token)
+                    ok(f"Token stored as '{vault_key}'")
+                    cfg.setdefault("connectors", {}).setdefault("discord", {}).setdefault("accounts", {})[bot_name] = {"token_key": vault_key}
+                    save_config(cfg)
+            else:
+                warn("No token provided — add it later via vault.")
+        else:
+            err("Vault unavailable — add the bot token later.")
+            bot_name = ask("Bot account name (will configure token later)", agent_name)
+    else:
+        if discord_accounts:
+            info(f"Available accounts: {', '.join(discord_accounts)}")
+        bot_name = ask("Existing bot account to use", discord_accounts[0] if discord_accounts else "main")
+
+    # Channel restriction
+    print()
+    channels = []
+    if ask_yn("Restrict to specific channel IDs?", default=False):
+        while True:
+            ch = ask("Channel ID (empty to stop)")
+            if not ch:
+                break
+            channels.append(ch)
+
+    # Write agents.rescue.yaml
+    rescue_agents = {
+        "agents": {
+            agent_name: {
+                "display_name": display_name,
+                "description": description,
+                "project_dir": f"./agents/{agent_name}",
+                "privileged": True,
+                "llm": {"provider": "claude_code", "model": model},
+                "tools": "all",
+                "skills": "all",
+                "routing": {
+                    "discord": {
+                        "account": bot_name,
+                        "channels": channels,
+                        "categories": [],
+                        "guilds": [],
+                        "mentions": True,
+                    }
+                },
+            }
+        }
+    }
+    save_yaml(rescue_yaml, rescue_agents)
+
+    # Create agent directory + scaffolding
+    agent_dir = PROJECT_ROOT / "agents" / agent_name
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    claude_md = f"""# {display_name}
+
+## Identity
+
+You are **{display_name}** — the unsandboxed ops and dev agent.
+
+- You run under `tars-rescue.service` — a separate, unsandboxed instance of the engine.
+- Your main counterpart runs inside the sandboxed `tars.service`. You handle what it can't: code edits, deploys, service restarts, infra debugging.
+- Be surgical. You have full filesystem access. Think before you write.
+- Bias toward reversible actions. Prefer git-tracked edits over raw file writes.
+
+## Memory System
+
+Use your MCP tools for memory — do NOT use curl or HTTP calls.
+
+- `memory_search` — keyword/FTS5 search
+- `memory_semantic_search` — embedding-based conceptual search
+- `memory_store` — save important information
+- `memory_forget` — remove a memory by ID
+"""
+    claude_md_path = agent_dir / "CLAUDE.md"
+    if claude_md_path.exists():
+        warn("CLAUDE.md already exists — skipping (won't overwrite)")
+    else:
+        claude_md_path.write_text(claude_md)
+        ok(f"Created agents/{agent_name}/CLAUDE.md")
+
+    mcp_path = agent_dir / ".mcp.json"
+    if mcp_path.exists():
+        warn(".mcp.json already exists — skipping (won't overwrite)")
+    else:
+        mcp_json = {
+            "mcpServers": {
+                "tars-tools": {
+                    "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
+                    "args": ["-m", "src.mcp_server"],
+                    "cwd": str(PROJECT_ROOT),
+                }
+            }
+        }
+        mcp_path.write_text(json.dumps(mcp_json, indent=2) + "\n")
+        ok(f"Created agents/{agent_name}/.mcp.json")
+
+    claude_dir = agent_dir / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = claude_dir / "settings.json"
+    if settings_path.exists():
+        warn(".claude/settings.json already exists — skipping (won't overwrite)")
+    else:
+        settings = {"permissions": {"allow": ["mcp__tars-tools__*"], "deny": []}}
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        ok(f"Created agents/{agent_name}/.claude/settings.json")
+
+    # Check if service file exists
+    print()
+    if rescue_service.exists():
+        ok("tars-rescue.service already exists in config/")
+    else:
+        warn("tars-rescue.service not found in config/")
+        info("The service template ships with T.A.R.S core at config/tars-rescue.service")
+
+    # Install instructions
+    print()
+    header("Next Steps")
+    info("1. Customise the CLAUDE.md:  agents/" + agent_name + "/CLAUDE.md")
+    info("2. Install the service unit:")
+    info("     sudo cp config/tars-rescue.service /etc/systemd/system/")
+    info("     sudo systemctl daemon-reload")
+    info("     sudo systemctl enable --now tars-rescue.service")
+    info("3. The ops agent loads profile 'rescue' — only agents in")
+    info("   agents.rescue.yaml are started. Your main agents are unaffected.")
+    info("")
+    info("See ARCHITECTURE.md → Deployment Patterns for full details.")
+
+
 # ==========================================================================
 # Main menu
 # ==========================================================================
@@ -770,6 +952,7 @@ MENU_ITEMS = [
 SPECIAL_ITEMS = [
     ("a", "View Agents", view_agents),
     ("c", "Create Agent", create_agent),
+    ("p", "Create Privileged Ops Instance", create_ops_instance),
     ("v", "Vault Secrets", manage_vault),
     ("q", "Quit", None),
 ]
