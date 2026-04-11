@@ -140,13 +140,15 @@ gh pr create                           # PR for cross-review
 
 ### Agent session commit scope
 
-When running as an agent from `agents/<name>/`, your working directory is inside the TARS repo but **you must not commit or push to this repo**. The TARS repo is the shared core engine (Layer 1). Agent sessions typically have their own repositories (e.g. content repos, project repos) — commit only to those.
+**NEVER `git add`, `git commit`, or `git push` from the TARS repo when running as an agent.** Your working directory (`agents/<name>/`) is inside the TARS repo tree, but this is NOT your repository. It is the shared core engine (Layer 1).
 
-Before any `git add` or `git commit`, verify which repo you are in:
+Agent sessions have their own repositories (e.g. content repos, project repos). Before ANY git write operation, run:
 ```bash
 git remote get-url origin
 ```
-If the remote points to the TARS core repo, stop. You are in the wrong repo.
+If the output contains the TARS core repo URL, **stop immediately**. You are in the wrong repo. `cd` into the agent's own repository before proceeding.
+
+This applies even when the user asks you to "commit" or "push" — they mean the agent's content repo, not the TARS repo. When in doubt, ask which repo they mean.
 
 ## Key Conventions
 
