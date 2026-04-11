@@ -150,9 +150,16 @@ def load_yaml(path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _display_path(path: Path) -> Path | str:
+    try:
+        return path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        return path
+
+
 def save_yaml(path: Path, data: dict):
     path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
-    ok(f"Saved {path.relative_to(PROJECT_ROOT)}")
+    ok(f"Saved {_display_path(path)}")
 
 
 def load_json(path: Path) -> dict:
@@ -164,7 +171,7 @@ def load_json(path: Path) -> dict:
 
 def save_json(path: Path, data: dict):
     path.write_text(json.dumps(data, indent=2) + "\n")
-    ok(f"Saved {path.relative_to(PROJECT_ROOT)}")
+    ok(f"Saved {_display_path(path)}")
 
 
 def load_config() -> dict:
