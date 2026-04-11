@@ -513,8 +513,159 @@ The team roster is at `config/team.json`. User context is injected before each m
     ok(f"Agent directory created: {agent_dir}")
 
 
+def step_ops_instance(state: dict):
+    header("Step 8: Privileged Ops Instance (optional)")
+    info("T.A.R.S supports a dual-instance deployment pattern:")
+    info("  Main instance  — sandboxed, runs your user-facing agents")
+    info("  Ops instance   — unsandboxed, single privileged agent for dev/ops")
+    info("")
+    info("The ops agent can edit code, restart services, and run deploys.")
+    info("Only the system owner should have access to it.")
+    info("See ARCHITECTURE.md → Deployment Patterns for full details.")
+    print()
+
+    if not ask_yn("Set up a privileged ops instance?", default=False):
+        info("Skipped — you can set this up later via scripts/settings.py")
+        return
+
+    vault: FernetVault = state["vault"]
+
+    agent_name = ask("Ops agent internal name", "engineer")
+    display_name = ask("Display name", agent_name.capitalize() + " Bot")
+    description = ask("Description", "Privileged ops agent — unsandboxed, owner-only")
+    model = ask_choice("Model", ["sonnet", "opus"], default="opus")
+
+    # Bot account
+    print()
+    info("The ops agent needs its own Discord bot account.")
+    bot_name = ask("Bot account name", agent_name)
+    token = ask_secret(f"Discord bot token for '{bot_name}' (empty to skip)")
+
+    if token:
+        info("Validating token...")
+        bot_info = validate_discord_token(token)
+        if bot_info:
+            ok(f"Bot verified: {bot_info.get('username', '?')}")
+        else:
+            if not ask_yn("Validation failed. Store anyway?", default=False):
+                token = None
+
+    if token:
+        vault_key = f"discord-{bot_name}"
+        vault.set(vault_key, token)
+        ok(f"Token stored as '{vault_key}'")
+        state.setdefault("extra_bots", {})[bot_name] = vault_key
+    else:
+        warn("No token — add it later via vault-manage.py")
+
+    # Channel restriction
+    channels = []
+    if ask_yn("Restrict to specific channel IDs?", default=False):
+        while True:
+            ch = ask("Channel ID (empty to stop)")
+            if not ch:
+                break
+            channels.append(ch)
+
+    # Write agents.rescue.yaml
+    rescue_agents = {
+        "agents": {
+            agent_name: {
+                "display_name": display_name,
+                "description": description,
+                "project_dir": f"./agents/{agent_name}",
+                "privileged": True,
+                "llm": {"provider": "claude_code", "model": model},
+                "tools": "all",
+                "skills": "all",
+                "routing": {
+                    "discord": {
+                        "account": bot_name,
+                        "channels": channels,
+                        "categories": [],
+                        "guilds": [],
+                        "mentions": True,
+                    }
+                },
+            }
+        }
+    }
+    rescue_path = Path("config/agents.rescue.yaml")
+    rescue_path.write_text(yaml.dump(rescue_agents, default_flow_style=False, sort_keys=False))
+    ok("Created config/agents.rescue.yaml")
+
+    # Add bot account to main config.yaml if token was stored
+    if token:
+        config_path = Path("config/config.yaml")
+        if config_path.exists():
+            with open(config_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            cfg.setdefault("connectors", {}).setdefault("discord", {}).setdefault("accounts", {})[bot_name] = {"token_key": f"discord-{bot_name}"}
+            config_path.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False))
+            ok(f"Added bot '{bot_name}' to config.yaml")
+
+    # Create agent directory
+    project_root = Path.cwd().resolve()
+    agent_dir = Path(f"agents/{agent_name}")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    claude_md = f"""# {display_name}
+
+## Identity
+
+You are **{display_name}** — the unsandboxed ops and dev agent.
+
+- You run under `tars-rescue.service` — a separate, unsandboxed instance of the engine.
+- Your main counterpart runs inside the sandboxed `tars.service`. You handle what it can't: code edits, deploys, service restarts, infra debugging.
+- Be surgical. You have full filesystem access. Think before you write.
+- Bias toward reversible actions. Prefer git-tracked edits over raw file writes.
+
+## Memory System
+
+Use your MCP tools for memory — do NOT use curl or HTTP calls.
+
+- `memory_search` — keyword/FTS5 search
+- `memory_semantic_search` — embedding-based conceptual search
+- `memory_store` — save important information
+- `memory_forget` — remove a memory by ID
+"""
+    claude_md_path = agent_dir / "CLAUDE.md"
+    if not claude_md_path.exists():
+        claude_md_path.write_text(claude_md)
+        ok(f"Created agents/{agent_name}/CLAUDE.md")
+
+    mcp_json = {
+        "mcpServers": {
+            "tars-tools": {
+                "command": str(project_root / ".venv" / "bin" / "python3"),
+                "args": ["-m", "src.mcp_server"],
+                "cwd": str(project_root),
+            }
+        }
+    }
+    mcp_path = agent_dir / ".mcp.json"
+    if not mcp_path.exists():
+        mcp_path.write_text(json.dumps(mcp_json, indent=2) + "\n")
+        ok(f"Created agents/{agent_name}/.mcp.json")
+
+    claude_dir = agent_dir / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = claude_dir / "settings.json"
+    if not settings_path.exists():
+        settings = {"permissions": {"allow": ["mcp__tars-tools__*"], "deny": []}}
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        ok(f"Created agents/{agent_name}/.claude/settings.json")
+
+    print()
+    ok(f"Ops instance configured — agent: {display_name}")
+    info("To start it:")
+    info("  sudo cp config/tars-rescue.service /etc/systemd/system/")
+    info("  sudo systemctl daemon-reload")
+    info("  sudo systemctl enable --now tars-rescue.service")
+
+
 def step_extras(state: dict):
-    header("Step 8: Additional Setup (optional)")
+    header("Step 9: Additional Setup (optional)")
 
     while True:
         print()
@@ -632,7 +783,7 @@ def _add_bot(state: dict):
 
 
 def step_browser(state: dict):
-    header("Step 9: Browser Tool (optional)")
+    header("Step 10: Browser Tool (optional)")
     info("The browse_url tool uses a headless Chromium browser via Playwright")
     info("to fetch JavaScript-rendered pages. The Python package is already")
     info("installed; Chromium itself is a separate ~170MB download.")
@@ -773,6 +924,7 @@ def main():
         step_hitl,
         step_compression,
         step_generate,
+        step_ops_instance,
         step_extras,
         step_browser,
         step_summary,
