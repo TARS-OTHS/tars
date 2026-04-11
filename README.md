@@ -83,11 +83,12 @@ claude login
 
 ### DAEMONIZE
 
+The setup wizard (`setup.py`) generates and installs systemd units automatically. To install manually:
+
 ```bash
-# Copy the systemd template
-sudo cp config/tars.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now tars.service
+# Generate units into overlay, symlink, enable
+sudo bash scripts/install-systemd.sh /path/to/overlay --enable-service
+sudo systemctl start tars.service
 
 # View logs
 journalctl -u tars -f
@@ -342,7 +343,6 @@ uv run python -m src.main
 |----------|-------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Full system architecture and operations reference |
 | [MIGRATION.md](MIGRATION.md) | Migration guide from OpenClaw |
-| [ROADMAP.md](ROADMAP.md) | Feature roadmap |
 | [SCRIPTS.md](SCRIPTS.md) | All scripts with usage |
 | [skills/README.md](skills/README.md) | Skill format reference |
 | [codex/README.md](codex/README.md) | Business knowledge guide |

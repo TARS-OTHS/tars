@@ -154,7 +154,6 @@ gh pr create                           # PR for cross-review
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — Full system architecture and operations reference
 - **[MIGRATION.md](MIGRATION.md)** — Migration guide from OpenClaw to T.A.R.S
-- **[ROADMAP.md](ROADMAP.md)** — Feature roadmap
 - **[SCRIPTS.md](SCRIPTS.md)** — All scripts with usage
 - **[skills/README.md](skills/README.md)** — Skill format reference
 

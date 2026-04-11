@@ -66,6 +66,50 @@ Discord (one or more bot accounts)
    • Your own integrations
 ```
 
+## Three-Layer Architecture
+
+T.A.R.S uses a layered directory structure to separate the engine, domain extensions, and deployment-specific config. This keeps the Core repo clean for updates and prevents deployment data from leaking into the public codebase.
+
+```
+Layer 1 (Core):    /opt/tars            ← Engine code, generic tools, scripts
+Layer 2 (OTHS):    /opt/tars-oths       ← Domain-specific tools/skills (per-module subdirs)
+Layer 3 (Overlay): /opt/tars-overlay    ← This deployment's config, agents, data
+```
+
+| Layer | Contains | Git workflow | Env var |
+|-------|----------|-------------|---------|
+| **Core** | `src/`, generic tools, skills, scripts, systemd templates | Branch + PR + cross-review | — |
+| **Layer 2** | Domain tools/skills in per-module dirs (e.g. `amazon/`, `triage/`) | Self-merge OK | `TARS_OTHS` |
+| **Overlay** | `config/`, `agents/`, `systemd/`, `data/`, agent identities | Direct push | `TARS_OVERLAY` |
+
+**What goes where:**
+- Engine code, generic tools → Core
+- Domain tools (Amazon, Trello digest, ETL) → Layer 2
+- `config.yaml`, `agents.yaml`, `team.json`, agent CLAUDE.md files, service units → Overlay
+- Personal names, Discord IDs, API keys, company data → **never in Core or Layer 2**
+
+**Setup:** `setup.py` creates the overlay directory automatically (Step 2) and writes all generated config there. The `TARS_OVERLAY` env var is injected into systemd service units so the running process knows where to find config.
+
+**Discovery:** Layer 2 modules are scanned at startup. Each subdirectory with a `tools/` or `skills/` folder is auto-discovered. `setup.py` (Step 4) lets you select which modules to enable and builds the `TARS_OTHS` path.
+
+### Remote Neutralisation
+
+When a non-maintainer clones Core and runs `setup.py`, the installer renames the git remote `origin` → `upstream` and blocks push on that remote. This prevents agents and users from accidentally pushing deployment data to the public Core repo.
+
+```
+origin  → upstream (fetch: github.com/TARS-OTHS/tars, push: blocked)
+origin  → (unset — nothing to push to by default)
+```
+
+Users can still pull updates with `git pull upstream main`. Maintainers who need push access restore it with:
+
+```bash
+git remote rename upstream origin
+git remote set-url --push origin <url>
+```
+
+---
+
 ## Key Architectural Decisions
 
 1. **Claude Code CLI is a black box** — tools execute inside MCP subprocess, not in the main process. The `_dispatch_tools()` loop in agent_manager is dead code for the Claude Code provider.
@@ -147,14 +191,15 @@ tars/
 │   ├── regen-memory-context.sh — memory stats snapshot
 │   ├── memory-decay.sh        — memory decay/archive/purge
 │   ├── compress-context.sh    — batch context file compression
-│   ├── install-timers.sh      — install all systemd timers
+│   ├── install-timers.sh      — install all systemd timers (legacy)
+│   ├── install-systemd.sh     — symlink units, daemon-reload, enable timers
 │   ├── google-reauth.py       — Google OAuth2 re-authentication helper
 │   └── lib-alert.sh           — shared Discord alert helper
 ├── skills/                    — YAML skill definitions (auto-discovered)
 ├── data/                      — SQLite DBs, audit logs (gitignored)
 ├── vault-manage.py            — interactive vault secret manager
-├── setup.py                   — interactive setup wizard
-└── setup.sh                   — system-level setup (deps, service account)
+├── setup.py                   — interactive setup wizard (single entry point)
+└── setup.sh                   — deprecated stub (redirects to setup.py)
 ```
 
 ---
@@ -245,6 +290,69 @@ Included tool packs:
 
 Add your own integrations by dropping a `@tool` decorated Python file into `src/tools/`.
 
+### Tool Development Guide
+
+1. **Create the file** — `src/tools/my_tool.py` (or `<layer2-module>/tools/my_tool.py` for domain tools)
+2. **Decorate with `@tool`** — name, description, and optionally `hitl=True` for gated tools
+3. **Type-hint parameters** — the schema is auto-generated from type hints (str, int, bool, Optional, list)
+4. **Accept `ctx: ToolContext`** — provides `ctx.vault` (secrets), `ctx.config` (config dict), `ctx.storage` (SQLite)
+5. **Return a string** — the tool result shown to the LLM
+
+```python
+from src.core.base import ToolContext
+from src.core.tools import tool
+
+@tool(name="my_tool", description="Does something useful")
+async def my_tool(ctx: ToolContext, query: str, limit: int = 10) -> str:
+    api_key = ctx.vault.get("my-api-key")
+    # ... do work ...
+    return f"Found {limit} results for {query}"
+```
+
+The tool is auto-discovered on startup — no imports to add, no registry to update. It's immediately available to all agents via MCP.
+
+**Testing:** `uv run python scripts/test-tools.py --tool my_tool`
+
+**HITL gating:** Add `hitl=True` to the decorator for tools that should require human approval regardless of deployment config: `@tool(name="dangerous_tool", description="...", hitl=True)`
+
+### MCP Configuration
+
+Each agent gets an MCP server (`src/mcp_server.py`) spawned as a subprocess by Claude Code CLI. The server config lives in two places:
+
+**Per-agent `.mcp.json`** — in the agent's project directory, configures the T.A.R.S tool server:
+
+```json
+{
+  "mcpServers": {
+    "tars-tools": {
+      "command": "/opt/tars/.venv/bin/python3",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "/opt/tars",
+      "env": { "TARS_PROFILE": "${TARS_PROFILE:-}" }
+    }
+  }
+}
+```
+
+**External MCP servers** — additional MCP servers (third-party tools, other systems) are configured in `config/mcp.yaml`:
+
+```yaml
+servers:
+  tars-tools:
+    transport: stdio
+    command: /opt/tars/.venv/bin/python3
+    args: ["-m", "src.mcp_server"]
+    cwd: /opt/tars
+
+  # Example: connect an external MCP server
+  my-server:
+    transport: stdio
+    command: npx
+    args: ["-y", "@my-org/mcp-server"]
+```
+
+When `mcp_config` is set in `defaults.llm`, all agents get access to the external servers. Tools from external MCP servers appear as native tools to the LLM — no difference from built-in tools.
+
 ### Inter-Agent Communication
 
 Agents can communicate via two mechanisms, depending on whether they share a process:
@@ -271,7 +379,22 @@ Agent CLAUDE.md files should document bot IDs for each peer and instruct agents 
 
 ## Services
 
-T.A.R.S runs as a systemd service. You can run multiple instances with different profiles:
+### Dual-Instance Pattern
+
+T.A.R.S supports running two instances from the same codebase for separation of privilege:
+
+| Instance | Service | Profile | Sandbox | Purpose |
+|----------|---------|---------|---------|---------|
+| **Main** | `tars.service` | default | Sandboxed (`ProtectSystem=strict`, `NoNewPrivileges=true`, capability drop) | User-facing agents — business ops, assistants |
+| **Ops** | `tars-rescue.service` | `rescue` | Unsandboxed (full filesystem, sudo access) | Single privileged agent for dev/ops, deploys, debugging |
+
+Both run the same codebase (`uv run python -m src.main`), differentiated by `--profile`. They share SQLite databases (WAL mode) and the Fernet vault. Each instance has its own lock file.
+
+The main instance blocks built-in tools (Edit, Write, Bash) via `disallow_builtins` — agents operate through MCP tools only. The ops instance grants full access, but restricts who can use it via access control (owner-only).
+
+`setup.py` offers to set up the ops instance in Step 12. It creates a separate `agents.rescue.yaml`, a dedicated bot account, and the systemd unit.
+
+### Systemd
 
 ```bash
 # Main service
@@ -279,11 +402,36 @@ systemctl start tars.service
 systemctl status tars.service
 journalctl -u tars -f
 
-# Additional instance with different profile
+# Ops instance
 systemctl start tars-rescue.service
 ```
 
-Both run the same codebase (`uv run python -m src.main`), differentiated by `--profile`. They share SQLite databases (WAL mode) and the Fernet vault. Each instance has its own lock file.
+### Sandboxing (Main Instance)
+
+The main service unit applies systemd sandboxing:
+
+- `ProtectSystem=strict` — filesystem is read-only except explicit `ReadWritePaths`
+- `NoNewPrivileges=true` — no privilege escalation
+- `CapabilityBoundingSet=` — all capabilities dropped
+- `PrivateDevices=true` — no access to physical devices
+- `RestrictNamespaces=true` — no namespace creation
+- `SystemCallFilter=~@mount @reboot @swap @debug @obsolete` — dangerous syscalls blocked
+- `ReadWritePaths` — limited to overlay dirs, data, tmp, and Claude Code cache
+
+The ops instance intentionally omits these restrictions.
+
+### File Ownership
+
+All files under the install directory are owned by `tars:tars` (the service user). Root-owned files inside the tree cause latent breakage — readable but not writable by the service, and `uv sync` / `uv run` fail on root-owned files in `.venv/`.
+
+When editing files as root (e.g. from a Claude Code session running as root), chown back after every save:
+
+```bash
+# Check for misowned files
+find /opt/tars -not -user tars 2>/dev/null
+# Fix
+sudo chown -R tars:tars <paths>
+```
 
 ---
 
@@ -294,7 +442,7 @@ Both run the same codebase (`uv run python -m src.main`), differentiated by `--p
 | **Access control** | Three-layer: sender tier × agent tier, per-message tool filtering, static agent ceiling |
 | **Credentials** | Fernet vault (`config/secrets.enc`), per-instance random salt, PBKDF2 key derivation |
 | **HITL** | Configurable gated tools, Discord reaction approval, timeout with fail-closed default |
-| **Content safety** | Three-stage pipeline: sanitize → injection scoring → behavioral monitoring |
+| **Content safety** | Three-stage pipeline: sanitize (log-only) → injection scoring → behavioral monitoring |
 | **Security alerts** | Real-time alerts to configured Discord channel for content safety and behavioral anomalies |
 | **Rate limiting** | Per-tool sliding window (enforce mode), record-before-execute (TOCTOU-safe) |
 | **Bot-to-bot loop detection** | Per-bot sliding window (5 exchanges / 60s) — suppresses runaway ping-pong |
@@ -403,6 +551,15 @@ Tools are gated by **two mechanisms** (either triggers the gate):
 1. Listed in `gated_tools` in config (Layer 3 — deployment-specific)
 2. Decorated with `@tool(hitl=True)` in source (Core — hardcoded for universally dangerous tools)
 
+**Example flow:**
+
+1. User asks agent: "Email the quarterly report to the client"
+2. Agent calls `send_email` → MCP middleware detects it's in `gated_tools`
+3. Approval request posted to HITL channel: "🔒 **HITL Approval Required** — Agent `main` wants to call `send_email` with args: {to: ..., subject: ...}"
+4. Approver reacts ✅ → tool executes, result returned to agent
+5. If ❌ or timeout → tool returns denial message, agent explains to user
+6. Decision logged to audit trail and alert channel
+
 ### Access Control
 
 Three-tier system in `src/core/access_control.py`. Every incoming message is checked against sender tier × agent tier.
@@ -444,7 +601,19 @@ security:
         max_per_day: 5
 ```
 
-Wildcard patterns supported (e.g., `amazon_sp_*: max_per_hour: 60`).
+Wildcard patterns supported:
+
+```yaml
+    tools:
+      send_email:
+        max_per_hour: 10
+      install_mcp:
+        max_per_day: 5
+      amazon_sp_*:               # Matches all Amazon SP-API tools
+        max_per_hour: 60
+      trello_*:                  # Matches all Trello tools
+        max_per_hour: 30
+```
 
 ---
 
@@ -471,7 +640,7 @@ Inline SQLite with FTS5 full-text search and BGE-small-en-v1.5 embeddings (384-d
 
 ### Memory Lifecycle
 
-Memories decay when not accessed. Pinned memories are immune.
+Memories decay when not accessed. The decay rate is 0.0108/day.
 
 ```
 Day 0:  0.70 confidence (new memory)
@@ -480,6 +649,10 @@ Day 30: 0.38
 Day 60: 0.05 → archived (hidden from search)
 +90 days archived → permanently deleted
 ```
+
+**Pinning:** Memories can be pinned to make them immune to decay. Pinned memories always appear in search results and are injected at session start. Pin a memory by passing `pinned=true` when storing via `memory_store`, or update an existing memory's pinned status through the memory database directly. Use pinning for critical facts that should never expire (e.g. system configuration, key contacts, core procedures).
+
+**Accessing resets decay:** When a memory is returned in a search result, its `last_accessed` timestamp updates, resetting the decay clock. Frequently useful memories naturally survive longer.
 
 ### Memory Types
 
@@ -531,17 +704,24 @@ agents:
 
 ## Scheduled Tasks (systemd timers)
 
-All scheduled tasks use systemd timers (`Persistent=true` — catches up missed runs after reboot). Timer/service files in `config/timers/`, installed via `scripts/install-timers.sh`.
+All scheduled tasks use systemd timers (`Persistent=true` — catches up missed runs after reboot). Timer templates in `config/timers/`, installed automatically by `setup.py` via `scripts/install-systemd.sh`.
 
-| Timer | Schedule | Script | Purpose |
-|-------|----------|--------|---------|
-| tars-memory-context | Every 30 min | regen-memory-context.sh | Memory stats snapshot for agents |
-| tars-memory-decay | Daily 03:00 | memory-decay.sh | Confidence decay, archive, purge |
-| tars-health-audit | Every 6h | health-audit.sh | System health + temp cleanup |
-| tars-integrity | Every 12h | monitor-integrity.sh | File integrity checksums |
-| tars-exposure | Daily 02:00 | monitor-exposure.sh | Public port scanning |
+| Timer | Schedule | Script | Purpose | Alerts |
+|-------|----------|--------|---------|--------|
+| tars-memory-context | Every 30 min | regen-memory-context.sh | Regenerates `MEMORY_CONTEXT.md` with memory stats and service health snapshot for agent context injection | No |
+| tars-memory-decay | Daily 03:00 | memory-decay.sh | Applies confidence decay (0.0108/day), archives memories below threshold, purges archives older than 90 days | On purge |
+| tars-health-audit | Every 6h | health-audit.sh | Checks service status, disk/RAM/swap usage, zombie processes, cleans temp files | On warning/critical |
+| tars-integrity | Every 12h | monitor-integrity.sh | SHA256 checksums of critical files vs baseline — detects unauthorized changes | On mismatch |
+| tars-exposure | Daily 02:00 | monitor-exposure.sh | Scans for unexpected public-facing ports | On unexpected port |
+| tars-container-health | Every 6h | monitor-container-health.sh | Checks Docker containers for security drift (capabilities, non-root, no-new-privileges) | On drift |
 
-Add your own timers by creating service+timer files in `config/timers/` and running `scripts/install-timers.sh`.
+**Dependencies:** All timer services set `After=tars.service` to avoid running during startup. The memory-context timer depends on the memory database existing (`data/memory.db`).
+
+**Alerts:** Scripts that detect issues send Discord alerts via `scripts/lib-alert.sh`, which reads the bot token from the Fernet vault. The alert channel is configured in `config.yaml` under `security.alert_channel`.
+
+**Installation:** `setup.py` generates unit files into `<overlay>/systemd/` (substituting paths and injecting `TARS_OVERLAY`), then calls `scripts/install-systemd.sh` to symlink them into `/etc/systemd/system/` and enable timers. Timers are always installed (not optional) — they are required infrastructure.
+
+**Adding custom timers:** Create `.service` + `.timer` files in `config/timers/` (Core) or `<overlay>/systemd/` (deployment-specific), then run `scripts/install-systemd.sh <overlay-dir>`.
 
 ---
 
@@ -574,6 +754,25 @@ The service unit uses `uv run --no-sync` so that service start never writes to t
 
 Skipping sync after a dep change means the service will either crash on startup (`ImportError` for a new dep) or silently run stale code against a bumped version. The script is a no-op when nothing changed, so it's safe to run unconditionally as part of the deploy ritual.
 
+### Git Workflow
+
+Direct commits to `main` are blocked by a pre-commit hook (shipped in `hooks/pre-commit`, installed by `setup.py`). All Core changes go through feature branches:
+
+```bash
+git checkout -b fix/description
+# make changes
+git add <files> && git commit -m "fix: description"
+git push -u origin fix/description
+gh pr create
+# cross-review → merge via GitHub
+```
+
+**Remote neutralisation:** Non-maintainer installs have `origin` renamed to `upstream` with push blocked (see Three-Layer Architecture above). Maintainers restore push access by renaming back.
+
+**Hook enforcement:** The pre-commit hook checks the current branch name. If it's `main`, the commit is rejected with a formatted message explaining the branch + PR workflow. The hook also warns agents that deployment-specific files don't belong in Core.
+
+`setup.py` installs hooks automatically (Step 3) and compares shipped hooks against installed ones on re-run, offering to update outdated hooks.
+
 ### Test Mode
 ```bash
 uv run python -m src.main --profile test
@@ -598,6 +797,5 @@ uv run python vault-manage.py
 |----------|---------|
 | **ARCHITECTURE.md** | This file — full system reference |
 | **MIGRATION.md** | Migration guide from OpenClaw |
-| **ROADMAP.md** | Feature roadmap |
 | **SCRIPTS.md** | All scripts with usage examples |
 | **skills/README.md** | Skill format reference |
