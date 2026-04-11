@@ -444,8 +444,10 @@ class AgentManager:
         # --- LLM call + tool dispatch loop ---
         llm = self._get_agent_llm(agent_id)
         project_dir = self._get_project_dir(agent_id)
-        llm_model = agent_cfg.get("llm", {}).get("model",
+        llm_cfg = agent_cfg.get("llm", {})
+        llm_model = llm_cfg.get("model",
                      self.defaults.get("llm", {}).get("model", "opus"))
+        mcp_config = llm_cfg.get("mcp_config") or self.defaults.get("llm", {}).get("mcp_config")
 
         # Build allowed/disallowed tools for Claude Code CLI
         # allowed_tools: auto-approve these (no permission prompt)
@@ -517,6 +519,7 @@ class AgentManager:
                         session_id=session.cli_session_id,
                         allowed_tools=allowed_tools,
                         disallowed_tools=disallowed_tools,
+                        mcp_config=mcp_config,
                         proc_callback=lambda p: self._running_procs.__setitem__(agent_id, p),
                     )
                     self._running_procs.pop(agent_id, None)
@@ -620,8 +623,10 @@ class AgentManager:
         # LLM call + tool dispatch loop
         llm = self._get_agent_llm(agent_id)
         project_dir = self._get_project_dir(agent_id)
-        llm_model = agent_cfg.get("llm", {}).get("model",
+        llm_cfg = agent_cfg.get("llm", {})
+        llm_model = llm_cfg.get("model",
                      self.defaults.get("llm", {}).get("model", "opus"))
+        mcp_config = llm_cfg.get("mcp_config") or self.defaults.get("llm", {}).get("mcp_config")
 
         response = None
         for round_num in range(self._max_tool_rounds):
@@ -632,6 +637,7 @@ class AgentManager:
                     project_dir=project_dir,
                     model=llm_model,
                     session_id=session.cli_session_id,
+                    mcp_config=mcp_config,
                 )
             except Exception as e:
                 logger.error(f"Internal LLM error for {agent_id}: {e}", exc_info=True)

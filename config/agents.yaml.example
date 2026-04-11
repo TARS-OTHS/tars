@@ -7,6 +7,7 @@ agents:
     llm:
       provider: claude_code
       model: sonnet
+      # mcp_config: /path/to/mcp.yaml  # Optional: MCP server config for this agent
     tools: all
     skills: all
     # Block Claude Code's built-in file/shell tools. The agent still has full
