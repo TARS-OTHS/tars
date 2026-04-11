@@ -260,24 +260,56 @@ def ingest_skill_from_text(name: str, description: str, prompt: str,
     return skill_path
 
 
-def ingest_mcp_server(name: str, url: str, transport: str = "sse") -> None:
-    """Add an MCP server to config/mcp.yaml."""
-    mcp_path = PROJECT_ROOT / "config" / "mcp.yaml"
+def ingest_mcp_server(
+    name: str,
+    *,
+    transport: str = "sse",
+    url: str = "",
+    command: str = "",
+    args: list[str] | None = None,
+    cwd: str = "",
+    env: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+    description: str = "",
+) -> None:
+    """Add an MCP server to config/mcp.yaml and regenerate .mcp.json files.
+
+    Supports both remote (SSE) and local (stdio) servers.
+    """
+    mcp_path = _resolve_mcp_yaml()
     if mcp_path.exists():
         with open(mcp_path) as f:
             config = yaml.safe_load(f) or {}
     else:
         config = {}
+        mcp_path.parent.mkdir(parents=True, exist_ok=True)
 
-    config.setdefault("servers", {})[name] = {
-        "url": url,
-        "transport": transport,
-    }
+    entry: dict = {"transport": transport}
+    if transport == "stdio":
+        if not command:
+            raise ValueError("stdio transport requires 'command'")
+        entry["command"] = command
+        if args:
+            entry["args"] = args
+        if cwd:
+            entry["cwd"] = cwd
+        if env:
+            entry["env"] = env
+    else:
+        if not url:
+            raise ValueError(f"{transport} transport requires 'url'")
+        entry["url"] = url
+        if headers:
+            entry["headers"] = headers
+    if description:
+        entry["description"] = description
+
+    config.setdefault("servers", {})[name] = entry
 
     with open(mcp_path, "w") as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-    logger.info(f"Added MCP server: {name} at {url}")
+    logger.info(f"Added MCP server: {name} ({transport})")
 
     # Regenerate .mcp.json files for all agents
     regenerate_mcp_json()
