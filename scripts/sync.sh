@@ -37,7 +37,7 @@ uv sync
 if [ -n "${TARS_OTHS:-}" ]; then
     IFS=':' read -ra oths_dirs <<< "$TARS_OTHS"
     for dir in "${oths_dirs[@]}"; do
-        # TARS_OTHS entries point to module dirs (e.g. /opt/tars-oths/amazon).
+        # TARS_OTHS entries point to module dirs (e.g. /opt/tars-oths/my_module).
         # requirements.txt lives in the module root.
         req="$dir/requirements.txt"
         if [ -f "$req" ]; then

@@ -418,7 +418,8 @@ if ask_yn "Install systemd service? (auto-start on boot)"; then
     fi
 
     # Update ReadWritePaths to include overlay paths
-    sed -i "s|ReadWritePaths=.*|ReadWritePaths=${TARS_DIR}/data ${TARS_OVERLAY}/agents ${TARS_OVERLAY}/config ${TARS_OVERLAY}/tmp /tmp /home/tars/.cache /home/tars/.claude|" \
+    TARS_USER_HOME=$(eval echo ~tars)
+    sed -i "s|ReadWritePaths=.*|ReadWritePaths=${TARS_DIR}/data ${TARS_OVERLAY}/agents ${TARS_OVERLAY}/config ${TARS_OVERLAY}/tmp /tmp ${TARS_USER_HOME}/.cache ${TARS_USER_HOME}/.claude|" \
         "$TARS_OVERLAY/systemd/tars.service"
     sed -i "s|ReadOnlyPaths=.*|ReadOnlyPaths=${TARS_DIR} ${TARS_OVERLAY}|" \
         "$TARS_OVERLAY/systemd/tars.service"

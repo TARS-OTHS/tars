@@ -37,12 +37,14 @@ if ! id tars &>/dev/null; then
     exit 1
 fi
 
-if [ ! -f /home/tars/.config/tars-vault-key ]; then
-    echo -e "${RED}ERROR: Vault key not found at /home/tars/.config/tars-vault-key${NC}"
+TARS_USER_HOME=$(eval echo ~tars)
+
+if [ ! -f "$TARS_USER_HOME/.config/tars-vault-key" ]; then
+    echo -e "${RED}ERROR: Vault key not found at $TARS_USER_HOME/.config/tars-vault-key${NC}"
     exit 1
 fi
 
-if [ ! -f /home/tars/.claude/.credentials.json ]; then
+if [ ! -f "$TARS_USER_HOME/.claude/.credentials.json" ]; then
     echo -e "${RED}ERROR: Claude credentials not found for tars user.${NC}"
     echo "Run: sudo -u tars claude auth login"
     exit 1
