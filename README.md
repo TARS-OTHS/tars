@@ -25,7 +25,7 @@ Single-process agent framework. Connect messaging platforms to persistent LLM se
 INCOMING SIGNAL ──→ Router ──→ Agent Manager ──→ Claude Code CLI ──→ MCP Tools ──→ RESPONSE
 ```
 
-## What It Does
+## SYSTEM CAPABILITIES
 
 - **Single process** — no Docker, no microservices, no infrastructure to manage
 - **Multi-agent** — multiple bots with different personalities, tools, and permissions
@@ -41,7 +41,7 @@ INCOMING SIGNAL ──→ Router ──→ Agent Manager ──→ Claude Code C
 - **Headless browser** — `browse_url` tool renders JS-heavy pages via Playwright + Chromium
 - **Hot reload** — tools and skills update without restarting
 
-## Quick Start
+## BOOT SEQUENCE
 
 ```bash
 git clone https://github.com/TARS-OTHS/tars.git
@@ -63,22 +63,25 @@ Then start T.A.R.S:
 uv run python -m src.main
 ```
 
-### What You Need
+### MINIMUM REQUIREMENTS
 
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/) package manager
-- Claude Max subscription (for Claude Code CLI)
-- Discord bot token (free — [create one here](https://discord.com/developers/applications))
-- Linux VPS (2 CPU, 4GB RAM is plenty)
+```
+PREFLIGHT CHECK
+├── Python .......... 3.12+
+├── Package mgr ..... uv (https://docs.astral.sh/uv/)
+├── LLM engine ...... Claude Max subscription (Claude Code CLI)
+├── Comms ........... Discord bot token (free)
+└── Hardware ........ Linux VPS, 2 CPU, 4GB RAM
+```
 
-### Install Claude Code
+### INSTALL CLAUDE CODE
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 claude login
 ```
 
-### Running as a Service
+### DAEMONIZE
 
 ```bash
 # Copy the systemd template
@@ -90,7 +93,7 @@ sudo systemctl enable --now tars.service
 journalctl -u tars -f
 ```
 
-### Running with Profiles
+### PROFILES
 
 ```bash
 # Default profile
@@ -100,7 +103,7 @@ uv run python -m src.main
 uv run python -m src.main --profile test
 ```
 
-## Adding Tools
+## WEAPON SYSTEMS (TOOLS)
 
 ```python
 # src/tools/my_tool.py
@@ -116,7 +119,7 @@ async def check_weather(ctx: ToolContext, city: str) -> str:
 
 Drop it in `src/tools/`, it's auto-discovered and available to all agents via MCP. No imports to add, no registry to update.
 
-## Adding Skills
+## MISSION BRIEFINGS (SKILLS)
 
 ```yaml
 # skills/my_skill.yaml
@@ -135,7 +138,7 @@ tools:
 
 Skills become Discord slash commands automatically. See [skills/README.md](skills/README.md) for the full format reference.
 
-## Adding Business Knowledge (Codex)
+## INTEL DATABASE (CODEX)
 
 The `codex/` directory holds stable business knowledge that agents can't get from an API — brand voice, company profile, supplier contacts, processes, strategy docs.
 
@@ -152,7 +155,7 @@ Agents reference the codex via their CLAUDE.md. The `_index.md` tells agents wha
 
 See [codex/README.md](codex/README.md) for the full guide.
 
-## Included Tools
+## ARSENAL
 
 | Category | File | Tools | Requires |
 |----------|------|-------|----------|
@@ -170,7 +173,7 @@ See [codex/README.md](codex/README.md) for the full guide.
 
 Remove a file = remove those tools. Add your own integrations (Shopify, Stripe, GitHub, Slack, etc.) by dropping a `@tool` decorated Python file into `src/tools/`.
 
-## Architecture
+## MAINFRAME ARCHITECTURE
 
 ```
 ╔══════════════════════════════════════════════════════╗
@@ -194,7 +197,7 @@ Remove a file = remove those tools. Add your own integrations (Shopify, Stripe, 
 
 Everything is a pluggable module with auto-discovery. Drop a file in the right folder, reference it in config, it works.
 
-## Multi-Agent Setup
+## MULTI-AGENT DEPLOYMENT
 
 Each agent gets its own bot identity, tool access, and channel routing:
 
@@ -238,7 +241,11 @@ agents:
 
 Agents with specific channel/category routing take priority over wildcard agents.
 
-## Access Control
+## ACCESS CONTROL
+
+```
+AUTHORIZATION MATRIX ACTIVE
+```
 
 Three-layer permission system:
 
@@ -248,9 +255,9 @@ Three-layer permission system:
 | **What tools?** | Per-sender tool restrictions computed per message | `config.yaml` |
 | **Agent ceiling** | Static per-agent tool allowlist/denylist | `agents.yaml` |
 
-**People tiers:** owner (full access) → admin (safe tools + HITL) → staff (assistant only) → unknown (blocked)
+**Clearance levels:** owner (full access) → admin (safe tools + HITL) → staff (assistant only) → unknown (denied)
 
-## LLM Provider
+## LLM ENGINE
 
 T.A.R.S uses **Claude Code CLI** as its LLM engine via a Claude Max subscription (no per-token API costs). Each agent spawns a Claude Code subprocess with:
 
@@ -261,17 +268,19 @@ T.A.R.S uses **Claude Code CLI** as its LLM engine via a Claude Max subscription
 
 Alternative LLM providers (OpenAI-compatible endpoints, Ollama, Groq) are on the roadmap.
 
-## Memory System
+## MEMORY CORE
 
-SQLite-based persistent memory with dual search:
+```
+MEMORY SUBSYSTEM ACTIVE
+├── Storage ......... SQLite (WAL mode)
+├── Text search ..... FTS5 full-text index
+├── Semantic ........ BGE-small-en-v1.5 (384-dim, ONNX)
+├── Scoping ......... per-agent isolation + shared scope
+├── Persistence ..... auto-recall at session start
+└── Lifecycle ....... decay → archive → purge (pinnable)
+```
 
-- **FTS5** — fast keyword search across all memories
-- **Semantic embeddings** — BGE-small-en-v1.5 vectors (384-dim, ONNX) for conceptual similarity
-- **Agent-scoped** — each agent's memories are isolated; global and group scopes available
-- **Auto-recall** — relevant memories injected at session start
-- **Decay** — unused memories fade over time; pinned memories are permanent
-
-## Configuration
+## CONFIGURATION
 
 The setup wizard (`uv run python setup.py`) generates all config files interactively. Or copy the examples:
 
@@ -283,7 +292,7 @@ cp config/team.json.example config/team.json
 
 All config files are gitignored — your deployment details stay private.
 
-## Operations
+## OPERATIONS
 
 ```bash
 # Run
@@ -302,10 +311,10 @@ uv run python vault-manage.py
 uv run python scripts/test-tools.py
 ```
 
-## Security
+## SECURITY PROTOCOLS
 
 ```
-> DEFCON STATUS: LOCKED DOWN
+DEFCON STATUS: LOCKED DOWN
 ```
 
 - **Fernet vault** — AES-128-CBC encrypted at rest, PBKDF2 key derivation (100k iterations)
@@ -317,7 +326,7 @@ uv run python scripts/test-tools.py
 - **Message dedup** — same content to same channel within 120s is dropped
 - **Agent-scoped memory** — agents only see their own memories + shared scope
 
-## Migrating from OpenClaw
+## MIGRATING FROM OPENCLAW
 
 See [MIGRATION.md](MIGRATION.md) for the full migration guide. T.A.R.S replaces the OpenClaw gateway — same agents, same memories, same channels, zero data migration.
 
@@ -327,7 +336,7 @@ systemctl stop openclaw-gateway.service
 uv run python -m src.main
 ```
 
-## Docs
+## DOCUMENTATION INDEX
 
 | Document | Description |
 |----------|-------------|
