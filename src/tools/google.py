@@ -88,17 +88,22 @@ async def gmail_read(ctx: ToolContext, message_id: str) -> str:
 
     headers = {h["name"]: h["value"] for h in result.get("payload", {}).get("headers", [])}
 
-    # Decode full body from payload parts
-    body = ""
+    # Decode full body from payload parts (recurse into nested multipart)
     payload = result.get("payload", {})
-    parts = payload.get("parts", [])
-    if parts:
-        for part in parts:
-            if part.get("mimeType") == "text/plain":
-                data = part.get("body", {}).get("data", "")
-                if data:
-                    body = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
-                    break
+
+    def _find_body(part, mime="text/plain"):
+        """Recursively search MIME parts for a body of the given type."""
+        if part.get("mimeType") == mime:
+            data = part.get("body", {}).get("data", "")
+            if data:
+                return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+        for sub in part.get("parts", []):
+            found = _find_body(sub, mime)
+            if found:
+                return found
+        return ""
+
+    body = _find_body(payload, "text/plain") or _find_body(payload, "text/html")
     if not body:
         data = payload.get("body", {}).get("data", "")
         if data:
