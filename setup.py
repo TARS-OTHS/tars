@@ -159,7 +159,13 @@ def step_dependencies(state: dict):
     if shutil.which("jq"):
         ok("jq")
     else:
-        warn("jq not found — install with: sudo apt install jq")
+        warn("jq not found")
+        if ask_yn("Install now?"):
+            try:
+                subprocess.run(["sudo", "apt-get", "install", "-y", "jq"], check=True)
+                ok("jq installed")
+            except subprocess.CalledProcessError:
+                warn("Failed to install jq — install manually: sudo apt install jq")
 
     # Claude Code CLI
     if shutil.which("claude"):
