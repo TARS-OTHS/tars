@@ -3,13 +3,13 @@
 ## Setup & Operations
 
 ### `setup.py` — Interactive Setup Wizard
-Guides you through first-time configuration: vault, Discord bot, team, first agent, HITL settings.
+Guides you through first-time configuration: vault, Discord bot, team, first agent, HITL, context compression, browser tool.
 ```bash
 uv run python setup.py
 ```
 
 ### `setup.sh` — System-Level Setup
-Creates venv, installs deps, sets up service account and systemd service.
+Full system setup: deps, overlay directory, module picker, Discord bot, vault, context compression, agent config, timers, systemd service.
 ```bash
 ./setup.sh
 ```
@@ -73,6 +73,17 @@ send_alert "Something happened"
 Installs all systemd timer+service files from `config/timers/`.
 ```bash
 sudo scripts/install-timers.sh
+```
+
+### `scripts/compress-context.sh` — Context Compression
+Batch compress agent context files (codex docs, skill prompts) to reduce input tokens. Idempotent — skips unchanged files. CLAUDE.md files are excluded by default.
+```bash
+# Dry run — show savings without writing
+scripts/compress-context.sh --dry-run
+
+# Compress with specific level
+scripts/compress-context.sh --level lite      # filler phrases only
+scripts/compress-context.sh --level standard  # filler + contractions (default)
 ```
 
 ### `scripts/google-reauth.py` — Google OAuth2 Re-auth

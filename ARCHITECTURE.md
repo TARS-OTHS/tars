@@ -1,6 +1,6 @@
 # T.A.R.S — Architecture & Operations Reference
 
-> Last updated: 2026-04-04
+> Last updated: 2026-04-11
 
 ## System Overview
 
@@ -118,8 +118,11 @@ tars/
 │   │   ├── discord_tools.py   — read_channel, read_message, search, send_file
 │   │   ├── video.py           — video_frames, video_clip
 │   │   ├── tmux.py            — list, send, read, new
+│   │   ├── compress.py        — compress_context, decompress_context
 │   │   ├── ingest.py          — create_skill, read_url, browse_url, install_mcp, list_capabilities
 │   │   └── builtin.py         — send_message, ask_agent, send_to_agent
+│   ├── lib/
+│   │   └── compressor.py      — rule-based context compression (no LLM calls)
 │   ├── vault/
 │   │   └── fernet.py          — Fernet encrypted vault
 │   ├── auth/
@@ -143,6 +146,7 @@ tars/
 │   ├── monitor-exposure.sh    — public port scanning
 │   ├── regen-memory-context.sh — memory stats snapshot
 │   ├── memory-decay.sh        — memory decay/archive/purge
+│   ├── compress-context.sh    — batch context file compression
 │   ├── install-timers.sh      — install all systemd timers
 │   ├── google-reauth.py       — Google OAuth2 re-authentication helper
 │   └── lib-alert.sh           — shared Discord alert helper
@@ -191,7 +195,7 @@ agents:
   primary:
     display_name: "MyAgent"
     project_dir: ./agents/primary
-    tools: all                    # MCP tools
+    tools: all                    # MCP tools ("all" or explicit list)
     disallow_builtins:            # Block Claude Code built-in tools
       - Edit
       - Write
@@ -201,6 +205,16 @@ agents:
       discord:
         account: default
         channels: []              # All channels (wildcard)
+```
+
+**LLM defaults** can include `mcp_config` to wire external MCP servers for all agents:
+
+```yaml
+defaults:
+  llm:
+    provider: claude_code
+    model: sonnet
+    mcp_config: /path/to/mcp.yaml   # Optional: external MCP servers
 ```
 
 ---
@@ -222,6 +236,7 @@ Included tool packs:
 | **Cloudflare** | zones, dns_list, dns_update |
 | **Notion** | search, read, create |
 | **Web** | web_search (Tavily) |
+| **Compression** | compress_context, decompress_context |
 | **System** | create_skill, read_url, browse_url, browser, install_mcp, list_capabilities |
 | **Tmux** | list, send, read, new |
 | **Inter-agent** | send_message, ask_agent, send_to_agent |
@@ -473,6 +488,44 @@ Day 60: 0.05 → archived (hidden from search)
 | **semantic** | Facts, knowledge | "Client prefers email over Slack for updates" |
 | **episodic** | Events, experiences | "Deployed v2.1 on March 15, rollback needed for auth bug" |
 | **procedural** | How-to, processes | "Use vault-manage.py to rotate API keys" |
+
+---
+
+## Context Compression
+
+Optional rule-based compression for agent context files (codex docs, skill prompts). Strips unambiguous prose filler while preserving code blocks, config, paths, URLs, headings, and tables. No LLM calls — pure regex/heuristics, runs in milliseconds.
+
+CLAUDE.md files are excluded from batch compression — they are carefully tuned agent prompts where every word matters.
+
+**Configuration** (`config.yaml`):
+
+```yaml
+security:
+  compression:
+    enabled: false              # opt-in, disabled by default
+    level: standard             # lite (filler only) | standard (filler + contractions)
+    memory_recall: false        # compress memories at injection time
+```
+
+Per-agent override in `agents.yaml`:
+
+```yaml
+agents:
+  my_agent:
+    compression:
+      enabled: true
+      level: lite
+```
+
+**Levels:**
+- `lite` — strips filler phrases only ("please note that", "it is important to", etc.)
+- `standard` — filler phrases + contractions ("do not" → "don't")
+
+**Tools:** `compress_context` (with lite/standard/report levels), `decompress_context` (restore from .original backup)
+
+**Batch:** `scripts/compress-context.sh [--dry-run] [--level lite|standard]`
+
+**Implementation:** `src/lib/compressor.py` (engine), `src/tools/compress.py` (MCP tool wrapper)
 
 ---
 
