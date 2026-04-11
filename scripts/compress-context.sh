@@ -69,11 +69,8 @@ compress_file() {
     fi
 
     local result
-    result=$(cd "$TARS_DIR" && python3 -c "
-from src.lib.compressor import compress_file
-r = compress_file('$file', level='$level'${DRY_RUN:+, dry_run=True})
-print(f\"{r['original_tokens']} -> {r['compressed_tokens']} tokens ({r['saved_pct']}% saved)\")
-" 2>&1)
+    local dry_run_flag="${DRY_RUN:+--dry-run}"
+    result=$(cd "$TARS_DIR" && python3 -m src.lib.compressor "$file" --level "$level" $dry_run_flag 2>&1)
 
     if [ $? -eq 0 ]; then
         echo "[compress] ${DRY_RUN:+[DRY RUN] }$(basename "$file"): $result"
@@ -84,27 +81,9 @@ print(f\"{r['original_tokens']} -> {r['compressed_tokens']} tokens ({r['saved_pc
 
 total=0
 
-# --- Overlay agent CLAUDE.md files ---
-if [ -n "$OVERLAY" ] && [ -d "$OVERLAY/agents" ]; then
-    for agent_dir in "$OVERLAY"/agents/*/; do
-        claude_md="$agent_dir/CLAUDE.md"
-        if [ -f "$claude_md" ]; then
-            compress_file "$claude_md" "$LEVEL"
-            total=$((total + 1))
-        fi
-    done
-fi
-
-# --- Core agent CLAUDE.md files (if agents dir exists) ---
-if [ -d "$TARS_DIR/agents" ]; then
-    for agent_dir in "$TARS_DIR"/agents/*/; do
-        claude_md="$agent_dir/CLAUDE.md"
-        if [ -f "$claude_md" ]; then
-            compress_file "$claude_md" "$LEVEL"
-            total=$((total + 1))
-        fi
-    done
-fi
+# NOTE: CLAUDE.md files are excluded by default — they are carefully tuned
+# agent identity prompts where every word matters.  Use the MCP tool
+# (compress_context) to compress individual files manually if needed.
 
 # --- Codex docs ---
 if [ -n "$OVERLAY" ] && [ -d "$OVERLAY/codex" ]; then

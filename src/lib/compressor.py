@@ -1,7 +1,12 @@
 """Context compressor for T.A.R.S agent files.
 
-Rule-based compression that strips prose filler while preserving code blocks,
-config, paths, URLs, headings, tables, and technical terms. No LLM calls.
+Rule-based compression that strips unambiguous prose filler while preserving
+code blocks, config, paths, URLs, headings, tables, and technical terms.
+No LLM calls.  Conservative by design — only removes phrases that never
+carry meaning in LLM instruction files.
+
+Target: codex docs and skill prompts.  CLAUDE.md files (agent identity
+prompts) should generally be excluded as they are carefully tuned.
 """
 
 import re
@@ -17,42 +22,26 @@ _HEADING = re.compile(r"^(#{1,6}\s+.*)$", re.MULTILINE)
 _URL = re.compile(r"(https?://\S+)")
 _FILE_PATH = re.compile(r"(/[\w./-]+(?:\.\w+)?)")
 
-# Filler phrases to strip (case-insensitive, word-boundary)
+# Filler phrases to strip — only unambiguous padding that never carries
+# meaning in LLM instruction files.  Phrases like "for example", "note that",
+# and "keep in mind" are intentionally excluded because they signal emphasis
+# or illustrative context that models use for interpretation.
 _FILLER_PHRASES = [
     r"\bplease\s+note\s+that\s*",
     r"\bit\s+is\s+important\s+to\s*",
     r"\bit'?s\s+worth\s+noting\s+that\s*",
+    r"\bit\s+should\s+be\s+noted\s+that\s*",
     r"\byou\s+should\s+always\s*",
     r"\bmake\s+sure\s+to\s*",
     r"\bbe\s+sure\s+to\s*",
-    r"\bkeep\s+in\s+mind\s+that\s*",
     r"\bin\s+order\s+to\s*",
-    r"\bnote\s+that\s*",
-    r"\bthis\s+means\s+that\s*",
     r"\bthe\s+reason\s+for\s+this\s+is\s*",
     r"\bas\s+mentioned\s+(?:above|earlier|before),?\s*",
-    r"\bit\s+should\s+be\s+noted\s+that\s*",
-    r"\bfor\s+example,?\s*",
-    r"\bin\s+other\s+words,?\s*",
-    r"\bI'?d\s+recommend\s*",
     r"\byou\s+will\s+want\s+to\s*",
-    r"\byou\s+may\s+want\s+to\s*",
     r"\byou\s+will\s+need\s+to\s*",
-    r"\byou\s+can\s+also\s*",
     r"\bwhat\s+this\s+does\s+is\s*",
     r"\bthis\s+is\s+(?:essentially|basically)\s*",
 ]
-
-# Articles to strip
-_ARTICLES = re.compile(r"\b(?:a|an|the)\b(?=\s)", re.IGNORECASE)
-
-# Hedging words (only in standard+ mode)
-_HEDGING = re.compile(
-    r"\b(?:basically|essentially|generally|typically|usually|"
-    r"effectively|fundamentally|simply|just|really|very|quite|"
-    r"rather|somewhat|fairly)\b",
-    re.IGNORECASE,
-)
 
 # Collapse contractions
 _CONTRACTIONS = [
@@ -181,13 +170,7 @@ def _compress_line(line: str, level: str) -> str:
     for pattern in _FILLER_COMPILED:
         line = pattern.sub("", line)
 
-    # Strip articles (both levels)
-    line = _ARTICLES.sub("", line)
-
     if level == "standard":
-        # Strip hedging words
-        line = _HEDGING.sub("", line)
-
         # Apply contractions
         for pattern, replacement in _CONTRACTIONS:
             line = pattern.sub(replacement, line)
@@ -308,3 +291,21 @@ def decompress_file(file_path: str | Path) -> bool:
     path.write_text(original_text, encoding="utf-8")
     original_path.unlink()
     return True
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Compress a context file")
+    parser.add_argument("file", help="Path to the file to compress")
+    parser.add_argument("--level", default="standard", choices=["lite", "standard"])
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+
+    try:
+        r = compress_file(args.file, level=args.level, dry_run=args.dry_run)
+        print(f"{r['original_tokens']} -> {r['compressed_tokens']} tokens ({r['saved_pct']}% saved)")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
