@@ -1174,15 +1174,17 @@ def manage_timers():
             if unit not in timer_names:
                 err(f"Unknown timer: {unit}")
                 continue
-            flag = "--now" if action == "enable" else ""
-            cmd = f"sudo -n systemctl {action} {flag} {unit}".split()
+            cmd = ["sudo", "-n", "systemctl", action]
+            if action == "enable":
+                cmd.append("--now")
+            cmd.append(unit)
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode == 0:
                 ok(f"{unit} {action}d")
             else:
                 stderr = result.stderr.strip()
-                if "password is required" in stderr or "a]uthentication" in stderr.lower():
-                    err(f"sudo required — run: sudo systemctl {action} {flag} {unit}")
+                if "password is required" in stderr or "authentication" in stderr.lower():
+                    err(f"sudo required — run: sudo systemctl {action} {unit}")
                 else:
                     err(f"Failed: {stderr}")
         elif choice == "3":
@@ -1204,16 +1206,34 @@ def manage_timers():
                 continue
 
             content = timer_file.read_text()
+            schedule_key = None
             current = "?"
             for line in content.splitlines():
                 if line.startswith("OnCalendar="):
+                    schedule_key = "OnCalendar"
+                    current = line.split("=", 1)[1]
+                    break
+                elif line.startswith("OnUnitActiveSec="):
+                    schedule_key = "OnUnitActiveSec"
+                    current = line.split("=", 1)[1]
+                    break
+                elif line.startswith("OnBootSec="):
+                    schedule_key = "OnBootSec"
                     current = line.split("=", 1)[1]
                     break
 
-            info(f"Current schedule: {current}")
-            info("Examples: *-*-* 03:00:00 (daily 3am), *-*-* *:00:00 (hourly)")
-            info("          *-*-* 06,18:00:00 (twice daily)")
-            new_schedule = ask("New OnCalendar value", current)
+            if not schedule_key:
+                warn("No recognised schedule directive found in this timer.")
+                continue
+
+            info(f"Current: {schedule_key}={current}")
+            if schedule_key == "OnCalendar":
+                info("Examples: *-*-* 03:00:00 (daily 3am), *-*-* *:00:00 (hourly)")
+                info("          *-*-* 06,18:00:00 (twice daily)")
+            else:
+                info(f"This timer uses interval-based scheduling ({schedule_key}).")
+                info("Examples: 30min, 1h, 6h, 1d")
+            new_schedule = ask(f"New {schedule_key} value", current)
             if new_schedule == current:
                 info("No change.")
                 continue
@@ -1228,12 +1248,12 @@ def manage_timers():
             lines = timer_file.read_text().splitlines()
             new_lines = []
             for line in lines:
-                if line.startswith("OnCalendar="):
-                    new_lines.append(f"OnCalendar={new_schedule}")
+                if line.startswith(f"{schedule_key}="):
+                    new_lines.append(f"{schedule_key}={new_schedule}")
                 else:
                     new_lines.append(line)
             timer_file.write_text("\n".join(new_lines) + "\n")
-            ok(f"Schedule updated: {new_schedule}")
+            ok(f"Schedule updated: {schedule_key}={new_schedule}")
 
             # Reload if systemd is managing it
             subprocess.run(
