@@ -138,6 +138,16 @@ gh pr create                           # PR for cross-review
 - Before committing, verify no personal names, company names, or numeric IDs in code
 - Never force-push to `main` without explicit approval
 
+### Agent session commit scope
+
+When running as an agent from `agents/<name>/`, your working directory is inside the TARS repo but **you must not commit or push to this repo**. The TARS repo is the shared core engine (Layer 1). Agent sessions typically have their own repositories (e.g. content repos, project repos) — commit only to those.
+
+Before any `git add` or `git commit`, verify which repo you are in:
+```bash
+git remote get-url origin
+```
+If the remote points to the TARS core repo, stop. You are in the wrong repo.
+
 ## Key Conventions
 
 - **Modules are files** — drop a .py in the right folder, it's available. No imports to add, no registry to update.
