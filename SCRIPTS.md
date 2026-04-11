@@ -3,22 +3,52 @@
 ## Setup & Operations
 
 ### `setup.py` — Interactive Setup Wizard
-Complete setup from clone to running agent. Covers dependencies, overlay directory, git hooks, extension modules, vault, Discord, team, agents, HITL, compression, config generation, systemd services/timers, and browser tool.
+Complete setup from clone to running agent. Run once after cloning.
 ```bash
 uv run python setup.py
 ```
 
+**Steps:**
+1. **Dependencies** — checks Python, uv, jq, Claude Code CLI; runs `scripts/sync.sh`
+2. **Overlay** — creates deployment overlay directory structure
+3. **Git hooks** — installs pre-commit hook (compares and updates on re-run)
+4. **Modules** — discovers Layer 2 extension modules, lets you select which to enable
+5. **Vault** — creates encrypted credential vault (or reuses existing)
+6. **Discord** — bot token, guild selection, channel listing
+7. **Team** — owner + team member setup
+8. **Agent** — first agent config (name, model, personality)
+9. **HITL** — approval channel, approvers, gated tools
+10. **Compression** — optional context compression settings
+11. **Config generation** — writes config.yaml, agents.yaml, team.json, mcp.yaml, agent CLAUDE.md
+12. **Ops instance** — optional privileged agent for dev/ops (separate bot + service)
+13. **Extras** — add more team members, agents, or bots
+14. **Systemd** — generates timer units (automatic), optionally generates main service unit; calls `scripts/install-systemd.sh` to install
+15. **Browser** — optional Chromium download for headless browsing
+
 ### `setup.sh` — Deprecated Stub
-Redirects to `setup.py`. Kept for backwards compatibility.
+Redirects to `setup.py`. Prints deprecation notice. Kept for backwards compatibility.
 ```bash
 ./setup.sh  # equivalent to: uv run python setup.py
 ```
 
 ### `scripts/settings.py` — Interactive Settings Manager
-Post-install TUI for viewing and modifying all T.A.R.S configuration. Menu-driven — covers LLM defaults, connectors, session, memory, HITL, rate limits, compression, admin users, vault secrets, agent overview, and agent creation.
+Post-install TUI for viewing and modifying all configuration without re-running setup.
 ```bash
 uv run python scripts/settings.py
 ```
+
+**Menu options:**
+1. **LLM defaults** — provider, model, max tokens, timeout
+2. **Connectors** — Discord bot accounts, enable/disable platforms
+3. **Session** — max history, summarize threshold
+4. **Memory** — backend, semantic search toggle, decay settings, max results
+5. **HITL** — approval channel, approvers, timeout, fail mode, gated tools
+6. **Rate limits** — mode (enforce/log), per-tool limits, wildcard patterns
+7. **Compression** — enable/disable, compression level
+8. **Admin users** — Discord user IDs with admin access
+9. **Vault secrets** — add, update, delete, list vault entries
+10. **Agent overview** — list all agents, view/edit agent config
+11. **Add agent** — create a new agent interactively
 
 ### `vault-manage.py` — Interactive Vault Manager
 Manage encrypted secrets (add, update, delete, list, check).
