@@ -809,6 +809,9 @@ The team roster is at `config/team.json`. User context is injected before each m
     # Neutralise Core remote
     _neutralise_core_remote()
 
+    # Neutralise Core remote — prevent accidental pushes to the upstream repo
+    _neutralise_core_remote(project_root)
+
 
 def step_ops_instance(state: dict):
     header("Step 12: Privileged Ops Instance (optional)")
@@ -1365,6 +1368,31 @@ def _write_json(path: Path, data: dict, state: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n")
     ok(f"Created {_display(path)}")
+
+
+def _neutralise_core_remote(project_root: Path):
+    """Rename origin → upstream and block push to prevent accidental pushes to the Core repo."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(project_root), "remote", "get-url", "origin"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            return  # No origin remote — nothing to do
+
+        subprocess.run(
+            ["git", "-C", str(project_root), "remote", "rename", "origin", "upstream"],
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(project_root), "remote", "set-url", "--push", "upstream", "no-push"],
+            capture_output=True,
+        )
+        ok("Core remote: origin → upstream (push disabled)")
+        info("Pull updates:  git pull upstream main")
+        info("Maintainers:   git remote rename upstream origin")
+    except FileNotFoundError:
+        pass  # git not installed — skip silently
 
 
 def _write_file(path: Path, content: str, state: dict):
