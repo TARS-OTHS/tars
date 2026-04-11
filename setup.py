@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 """T.A.R.S Interactive Setup Wizard.
 
-Guides new users through first-time configuration:
-  1. Vault (encrypted secrets)
-  2. Discord bot connection
-  3. Team (owner profile)
-  4. First agent
-  5. HITL (human-in-the-loop approval)
-  6. Config file generation
+Complete setup from clone to running agent — dependencies, overlay,
+vault, Discord, agents, systemd, everything.
 
 Usage: uv run python setup.py
 """
@@ -16,22 +11,25 @@ import getpass
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import urllib.request
 import urllib.error
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+
 try:
     import yaml
 except ImportError:
-    print("Run 'uv sync' first to install dependencies.")
+    print("PyYAML not found. Run: uv sync")
     sys.exit(1)
 
 try:
     from src.vault.fernet import FernetVault
 except ImportError:
-    print("Run 'uv sync' first to install dependencies.")
+    print("T.A.R.S modules not found. Run: uv sync")
     sys.exit(1)
 
 # --- Formatting ---
@@ -126,14 +124,263 @@ def validate_discord_token(token: str) -> dict | None:
         return None
 
 
-# --- Steps ---
+# ==========================================================================
+# Steps
+# ==========================================================================
+
+def step_dependencies(state: dict):
+    header("Step 1: Dependencies")
+
+    # Python version
+    v = sys.version_info
+    if v.major >= 3 and v.minor >= 12:
+        ok(f"Python {v.major}.{v.minor}.{v.micro}")
+    else:
+        err(f"Python {v.major}.{v.minor} — 3.12+ required")
+        sys.exit(1)
+
+    # uv
+    if shutil.which("uv"):
+        ok("uv")
+    else:
+        info("uv not found — installing...")
+        try:
+            subprocess.run(
+                ["bash", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
+                check=True,
+            )
+            ok("uv installed")
+        except subprocess.CalledProcessError:
+            err("Failed to install uv. Install manually: https://docs.astral.sh/uv/")
+            sys.exit(1)
+
+    # jq (optional but useful)
+    if shutil.which("jq"):
+        ok("jq")
+    else:
+        warn("jq not found — install with: sudo apt install jq")
+
+    # Claude Code CLI
+    if shutil.which("claude"):
+        ok("Claude Code CLI")
+    else:
+        warn("Claude Code CLI not found")
+        if ask_yn("Install now?"):
+            try:
+                subprocess.run(
+                    ["bash", "-c", "curl -fsSL https://claude.ai/install.sh | sh"],
+                    check=True,
+                )
+                if shutil.which("claude"):
+                    ok("Claude Code CLI installed")
+                else:
+                    warn("Installed but not on PATH — restart your shell")
+            except subprocess.CalledProcessError:
+                err("Installation failed")
+                info("Install manually: https://docs.anthropic.com/en/docs/claude-code")
+        else:
+            info("Install later: curl -fsSL https://claude.ai/install.sh | sh")
+
+    # Sync Python deps
+    info("Installing Python dependencies...")
+    sync_script = PROJECT_ROOT / "scripts" / "sync.sh"
+    if sync_script.exists():
+        subprocess.run([str(sync_script)], cwd=str(PROJECT_ROOT), check=False)
+    else:
+        subprocess.run(["uv", "sync"], cwd=str(PROJECT_ROOT), check=False)
+    ok("Dependencies installed")
+
+
+def step_overlay(state: dict):
+    header("Step 2: Deployment Overlay")
+    info("The overlay holds your config, agent identities, service files,")
+    info("and generated files — separate from the engine code.")
+    info("This keeps Core clean for updates.")
+    print()
+
+    # Default: sibling directory named <base>-overlay
+    parent = PROJECT_ROOT.parent
+    base = PROJECT_ROOT.name
+    # Strip version suffixes (tars-v2 -> tars)
+    for suffix in ["-v2", "-v3", "-v4"]:
+        base = base.replace(suffix, "")
+    default_overlay = str(parent / f"{base}-overlay")
+
+    overlay_input = ask("Overlay directory", default_overlay)
+    overlay = Path(overlay_input).resolve()
+
+    # Create directory structure
+    for d in ["config", "agents", "systemd", "tmp/media", "tmp/docs", "tmp/scratch"]:
+        (overlay / d).mkdir(parents=True, exist_ok=True)
+
+    # .gitignore
+    gitignore = overlay / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text(
+            "# Runtime data\n"
+            "agents/*/data/\n"
+            "**/MEMORY_CONTEXT.md\n"
+            "\n"
+            "# Agent-generated files\n"
+            "tmp/\n"
+            "\n"
+            "# Python\n"
+            "__pycache__/\n"
+            "*.pyc\n"
+            "\n"
+            "# Claude Code session state\n"
+            "/.claude/\n"
+            "\n"
+            "# Secrets\n"
+            "config/secrets.enc\n"
+            "config/secrets.salt\n"
+        )
+
+    ok(f"Overlay: {overlay}")
+    state["overlay"] = overlay
+
+
+def step_hooks(state: dict):
+    header("Step 3: Git Hooks")
+
+    hooks_src = PROJECT_ROOT / "hooks"
+    hooks_dst = PROJECT_ROOT / ".git" / "hooks"
+
+    if not hooks_src.exists() or not hooks_dst.exists():
+        info("No hooks to install — skipping")
+        return
+
+    installed = 0
+    for hook in sorted(hooks_src.iterdir()):
+        if not hook.is_file():
+            continue
+        target = hooks_dst / hook.name
+        if target.exists():
+            info(f"Hook already exists: {hook.name} (skipped)")
+        else:
+            shutil.copy2(hook, target)
+            target.chmod(target.stat().st_mode | stat.S_IEXEC)
+            ok(f"Installed hook: {hook.name}")
+            installed += 1
+
+    if installed == 0:
+        ok("All hooks already installed")
+
+
+def step_modules(state: dict):
+    header("Step 4: Tools & Skills")
+
+    # Show core tools
+    print(f"  {BOLD}Core tools (always included):{RESET}")
+    tools_dir = PROJECT_ROOT / "src" / "tools"
+    if tools_dir.exists():
+        for py in sorted(tools_dir.glob("*.py")):
+            if py.name.startswith("__"):
+                continue
+            print(f"    {GREEN}✓{RESET} {py.stem}")
+
+    # Show core skills
+    skills_dir = PROJECT_ROOT / "skills"
+    core_skills = []
+    if skills_dir.exists():
+        for yml in sorted(list(skills_dir.glob("*.yaml")) + list(skills_dir.glob("*.yml"))):
+            core_skills.append(yml.stem)
+    if core_skills:
+        print(f"\n  {BOLD}Core skills (always included):{RESET}")
+        for s in core_skills:
+            print(f"    {GREEN}✓{RESET} {s}")
+
+    # Scan for Layer 2 modules
+    oths_root = None
+    for candidate in [PROJECT_ROOT.parent / "tars-oths", PROJECT_ROOT.parent / "oths"]:
+        if candidate.is_dir():
+            oths_root = candidate
+            break
+
+    if not oths_root:
+        print()
+        oths_input = ask("Path to extension modules (leave blank to skip)")
+        if oths_input:
+            p = Path(oths_input).resolve()
+            if p.is_dir():
+                oths_root = p
+
+    if not oths_root or not oths_root.is_dir():
+        print()
+        ok("No extension modules (core tools only)")
+        state["tars_oths"] = ""
+        state["selected_modules"] = []
+        return
+
+    # List available modules
+    available = []
+    print(f"\n  {BOLD}Available extension modules:{RESET}")
+    idx = 0
+    for mod_dir in sorted(oths_root.iterdir()):
+        if not mod_dir.is_dir():
+            continue
+        idx += 1
+
+        mod_tools = []
+        if (mod_dir / "tools").exists():
+            mod_tools = [p.stem for p in (mod_dir / "tools").glob("*.py") if not p.name.startswith("__")]
+
+        mod_skills = []
+        skills_p = mod_dir / "skills"
+        if skills_p.exists():
+            mod_skills = [p.stem for p in sorted(list(skills_p.glob("*.yaml")) + list(skills_p.glob("*.yml")))]
+
+        available.append(mod_dir.name)
+        print(f"\n    {BOLD}[{idx}] {mod_dir.name}{RESET}")
+        if mod_tools:
+            print(f"        Tools:  {' '.join(mod_tools)}")
+        if mod_skills:
+            print(f"        Skills: {' '.join(mod_skills)}")
+
+    if not available:
+        ok("No extension modules found")
+        state["tars_oths"] = ""
+        state["selected_modules"] = []
+        return
+
+    print()
+    info("Enter module numbers (comma-separated), 'all', or leave blank to skip.")
+    choice = ask("Modules", "")
+
+    selected = []
+    if choice.lower() == "all":
+        selected = available[:]
+    elif choice:
+        for c in choice.split(","):
+            c = c.strip()
+            try:
+                i = int(c) - 1
+                if 0 <= i < len(available):
+                    selected.append(available[i])
+            except ValueError:
+                pass
+
+    if selected:
+        oths_paths = [str(oths_root / mod) for mod in selected]
+        state["tars_oths"] = ":".join(oths_paths)
+        state["tars_oths_root"] = str(oths_root)
+        state["selected_modules"] = selected
+        print()
+        for mod in selected:
+            ok(f"Module: {mod}")
+    else:
+        state["tars_oths"] = ""
+        state["selected_modules"] = []
+        ok("No extension modules selected (core tools only)")
+
 
 def step_vault(state: dict):
-    header("Step 1: Vault Setup")
+    header("Step 5: Vault Setup")
     info("The vault encrypts your API tokens and secrets at rest.")
     info("You'll set a passphrase that's needed to unlock the vault at startup.")
 
-    vault_path = Path("config/secrets.enc")
+    overlay: Path = state["overlay"]
+    vault_path = overlay / "config" / "secrets.enc"
     key_file = Path.home() / ".config" / "tars-vault-key"
     vault = FernetVault(str(vault_path))
 
@@ -198,7 +445,7 @@ def step_vault(state: dict):
 
 
 def step_discord(state: dict):
-    header("Step 2: Discord Bot")
+    header("Step 6: Discord Bot")
     info("T.A.R.S connects to Discord via a bot account.")
     info("Create one at: https://discord.com/developers/applications")
     info("Required intents: Message Content, Server Members, Guild Messages")
@@ -248,7 +495,7 @@ def step_discord(state: dict):
 
 
 def step_team(state: dict):
-    header("Step 3: Team — Owner Profile")
+    header("Step 7: Team — Owner Profile")
     info("Set up your profile so the system knows who you are.")
     print()
 
@@ -277,7 +524,7 @@ def step_team(state: dict):
 
 
 def step_agent(state: dict):
-    header("Step 4: First Agent")
+    header("Step 8: First Agent")
     info("Configure your primary AI agent.")
     print()
 
@@ -305,7 +552,7 @@ def step_agent(state: dict):
 
 
 def step_hitl(state: dict):
-    header("Step 5: Human-in-the-Loop Approval")
+    header("Step 9: Human-in-the-Loop Approval")
     info("Some tools require human approval before executing.")
     info("Approvals are sent to a Discord channel as reaction prompts.")
     print()
@@ -349,7 +596,7 @@ def step_hitl(state: dict):
 
 
 def step_compression(state: dict):
-    header("Step 6: Context Compression (optional)")
+    header("Step 10: Context Compression (optional)")
     info("T.A.R.S can compress verbose context files (codex docs, skill prompts)")
     info("to reduce input tokens per agent message. Rule-based, no LLM calls.")
     info("CLAUDE.md files are excluded — they're carefully tuned prompts.")
@@ -382,15 +629,16 @@ def step_compression(state: dict):
 
 
 def step_generate(state: dict):
-    header("Step 7: Generating Config Files")
+    header("Step 11: Generating Config Files")
 
+    overlay: Path = state["overlay"]
     agent = state["agent"]
     owner = state["owner"]
     hitl = state["hitl"]
     bot_name = state.get("bot_name", "main")
     guild_id = state.get("guild_id", "YOUR_GUILD_ID")
     owner_discord = owner["contact"]["discord"] or "YOUR_DISCORD_USER_ID"
-    project_root = Path.cwd().resolve()
+    agent_dir = overlay / "agents" / agent["name"]
 
     # --- config.yaml ---
     config = {
@@ -425,19 +673,15 @@ def step_generate(state: dict):
         },
         "admin_users": {"discord": [owner_discord]},
     }
-    _write_yaml("config/config.yaml", config, state)
+    _write_yaml(overlay / "config" / "config.yaml", config, state)
 
     # --- agents.yaml ---
-    # disallow_builtins blocks Claude Code's built-in file/shell tools for
-    # non-privileged agents. They still have full MCP tool access, but can't
-    # edit code, run shell commands, or write arbitrary files. Privileged
-    # ops/dev agents should remove this block.
     agents = {
         "agents": {
             agent["name"]: {
                 "display_name": agent["display_name"],
                 "description": agent["description"],
-                "project_dir": f"./agents/{agent['name']}",
+                "project_dir": str(agent_dir),
                 "llm": {"provider": "claude_code", "model": agent["model"]},
                 "tools": "all",
                 "skills": "all",
@@ -452,14 +696,29 @@ def step_generate(state: dict):
             }
         }
     }
-    _write_yaml("config/agents.yaml", agents, state)
+    _write_yaml(overlay / "config" / "agents.yaml", agents, state)
 
     # --- team.json ---
     team = {"humans": state["team_members"], "agents": []}
-    _write_json("config/team.json", team, state)
+    _write_json(overlay / "config" / "team.json", team, state)
+
+    # --- mcp.yaml ---
+    mcp_yaml_path = overlay / "config" / "mcp.yaml"
+    if not mcp_yaml_path.exists():
+        mcp_config = {
+            "servers": {
+                "tars-tools": {
+                    "transport": "stdio",
+                    "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
+                    "args": ["-m", "src.mcp_server"],
+                    "cwd": str(PROJECT_ROOT),
+                }
+            }
+        }
+        mcp_yaml_path.write_text(yaml.dump(mcp_config, default_flow_style=False, sort_keys=False))
+        ok(f"Created {_display(mcp_yaml_path)}")
 
     # --- Agent directory ---
-    agent_dir = Path(f"agents/{agent['name']}")
     agent_dir.mkdir(parents=True, exist_ok=True)
 
     # CLAUDE.md
@@ -499,10 +758,21 @@ The team roster is at `config/team.json`. User context is injected before each m
 """
     _write_file(agent_dir / "CLAUDE.md", claude_md, state)
 
-    # .mcp.json — generated from mcp.yaml (source of truth)
-    _ensure_mcp_yaml(project_root, state)
-    from src.core.digest import regenerate_mcp_json
-    regenerate_mcp_json()
+    # .mcp.json
+    mcp_json = {
+        "mcpServers": {
+            "tars-tools": {
+                "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
+                "args": ["-m", "src.mcp_server"],
+                "cwd": str(PROJECT_ROOT),
+                "env": {"TARS_PROFILE": "${TARS_PROFILE:-}"},
+            }
+        }
+    }
+    mcp_json_path = agent_dir / ".mcp.json"
+    if not mcp_json_path.exists():
+        mcp_json_path.write_text(json.dumps(mcp_json, indent=2) + "\n")
+        ok(f"Created {_display(mcp_json_path)}")
 
     # .claude/settings.json
     claude_dir = agent_dir / ".claude"
@@ -510,32 +780,42 @@ The team roster is at `config/team.json`. User context is injected before each m
     settings = {
         "permissions": {
             "allow": [
-                f"mcp__tars-tools__*",
-                f"Bash(uv run python:*)",
+                "mcp__tars-tools__*",
+                "Bash(uv run python:*)",
             ],
             "deny": [],
-        }
+        },
+        "env": {
+            "PATH": f"{PROJECT_ROOT}/.venv/bin:{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        },
     }
-    _write_json(str(claude_dir / "settings.json"), settings, state)
+    settings_path = claude_dir / "settings.json"
+    if not settings_path.exists():
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        ok(f"Created {_display(settings_path)}")
 
-    ok(f"Agent directory created: {agent_dir}")
+    ok(f"Agent directory: {_display(agent_dir)}")
+
+    # Neutralise Core remote
+    _neutralise_core_remote()
 
 
 def step_ops_instance(state: dict):
-    header("Step 8: Privileged Ops Instance (optional)")
+    header("Step 12: Privileged Ops Instance (optional)")
     info("T.A.R.S supports a dual-instance deployment pattern:")
     info("  Main instance  — sandboxed, runs your user-facing agents")
     info("  Ops instance   — unsandboxed, single privileged agent for dev/ops")
     info("")
     info("The ops agent can edit code, restart services, and run deploys.")
     info("Only the system owner should have access to it.")
-    info("See ARCHITECTURE.md → Deployment Patterns for full details.")
+    info("See ARCHITECTURE.md for full details.")
     print()
 
     if not ask_yn("Set up a privileged ops instance?", default=False):
         info("Skipped — you can set this up later via scripts/settings.py")
         return
 
+    overlay: Path = state["overlay"]
     vault: FernetVault = state["vault"]
 
     agent_name = ask("Ops agent internal name", "engineer")
@@ -575,13 +855,15 @@ def step_ops_instance(state: dict):
                 break
             channels.append(ch)
 
+    agent_dir = overlay / "agents" / agent_name
+
     # Write agents.rescue.yaml
     rescue_agents = {
         "agents": {
             agent_name: {
                 "display_name": display_name,
                 "description": description,
-                "project_dir": f"./agents/{agent_name}",
+                "project_dir": str(agent_dir),
                 "privileged": True,
                 "llm": {"provider": "claude_code", "model": model},
                 "tools": "all",
@@ -598,13 +880,13 @@ def step_ops_instance(state: dict):
             }
         }
     }
-    rescue_path = Path("config/agents.rescue.yaml")
+    rescue_path = overlay / "config" / "agents.rescue.yaml"
     rescue_path.write_text(yaml.dump(rescue_agents, default_flow_style=False, sort_keys=False))
-    ok("Created config/agents.rescue.yaml")
+    ok(f"Created {_display(rescue_path)}")
 
-    # Add bot account to main config.yaml if token was stored
+    # Add bot account to main config.yaml
     if token:
-        config_path = Path("config/config.yaml")
+        config_path = overlay / "config" / "config.yaml"
         if config_path.exists():
             with open(config_path) as f:
                 cfg = yaml.safe_load(f) or {}
@@ -613,8 +895,6 @@ def step_ops_instance(state: dict):
             ok(f"Added bot '{bot_name}' to config.yaml")
 
     # Create agent directory
-    project_root = Path.cwd().resolve()
-    agent_dir = Path(f"agents/{agent_name}")
     agent_dir.mkdir(parents=True, exist_ok=True)
 
     claude_md = f"""# {display_name}
@@ -630,7 +910,7 @@ You are **{display_name}** — the unsandboxed ops and dev agent.
 
 ## File System
 
-- **Your directory:** `agents/{agent_name}/` — your CLAUDE.md, config, and data live here
+- **Your directory:** `{agent_dir}/` — your CLAUDE.md, config, and data live here
 - **Generated files:** use `$TARS_TMP` for media, docs, and scratch files
 - When editing Core framework code, always use a feature branch + PR — never commit directly to main
 - Deployment-specific files (agent configs, personal data, custom tools) belong in the overlay, not in Core
@@ -647,40 +927,51 @@ Use your MCP tools for memory — do NOT use curl or HTTP calls.
     claude_md_path = agent_dir / "CLAUDE.md"
     if not claude_md_path.exists():
         claude_md_path.write_text(claude_md)
-        ok(f"Created agents/{agent_name}/CLAUDE.md")
+        ok(f"Created {_display(claude_md_path)}")
 
+    # .mcp.json
     mcp_json = {
         "mcpServers": {
             "tars-tools": {
-                "command": str(project_root / ".venv" / "bin" / "python3"),
+                "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
                 "args": ["-m", "src.mcp_server"],
-                "cwd": str(project_root),
+                "cwd": str(PROJECT_ROOT),
+                "env": {"TARS_PROFILE": "${TARS_PROFILE:-}"},
             }
         }
     }
     mcp_path = agent_dir / ".mcp.json"
     if not mcp_path.exists():
         mcp_path.write_text(json.dumps(mcp_json, indent=2) + "\n")
-        ok(f"Created agents/{agent_name}/.mcp.json")
+        ok(f"Created {_display(mcp_path)}")
 
+    # .claude/settings.json — ops agents get full access
     claude_dir = agent_dir / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
     settings_path = claude_dir / "settings.json"
     if not settings_path.exists():
-        settings = {"permissions": {"allow": ["mcp__tars-tools__*"], "deny": []}}
+        settings = {
+            "permissions": {
+                "allow": [
+                    "Bash(*)", "Read(*)", "Glob(*)", "Grep(*)",
+                    "WebSearch(*)", "WebFetch(*)", "mcp__tars-tools__*",
+                ],
+                "deny": [],
+            },
+            "env": {
+                "PATH": f"{PROJECT_ROOT}/.venv/bin:{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin",
+            },
+        }
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
-        ok(f"Created agents/{agent_name}/.claude/settings.json")
+        ok(f"Created {_display(settings_path)}")
 
     print()
     ok(f"Ops instance configured — agent: {display_name}")
-    info("To start it:")
-    info("  sudo cp config/tars-rescue.service /etc/systemd/system/")
-    info("  sudo systemctl daemon-reload")
-    info("  sudo systemctl enable --now tars-rescue.service")
+    info("Service setup will be offered in a later step.")
 
 
 def step_extras(state: dict):
-    header("Step 9: Additional Setup (optional)")
+    header("Step 13: Additional Setup (optional)")
 
     while True:
         print()
@@ -702,7 +993,199 @@ def step_extras(state: dict):
             _add_bot(state)
 
 
+def step_systemd(state: dict):
+    header("Step 14: Systemd Services (optional)")
+
+    if not shutil.which("systemctl"):
+        info("systemd not available — skipping")
+        return
+
+    overlay: Path = state["overlay"]
+    has_sudo = _check_sudo()
+
+    if not has_sudo:
+        warn("sudo not available — service files will be generated but not installed")
+        info("You'll need to symlink them to /etc/systemd/system/ manually")
+        print()
+
+    # --- Timers ---
+    timers_dir = PROJECT_ROOT / "config" / "timers"
+    if timers_dir.exists() and ask_yn("Install maintenance timers (health, memory, integrity)?"):
+        for f in sorted(timers_dir.iterdir()):
+            if not f.is_file():
+                continue
+
+            content = f.read_text().replace("/opt/tars", str(PROJECT_ROOT))
+
+            # Inject TARS_OVERLAY into service files
+            if f.name.endswith(".service"):
+                lines = content.split("\n")
+                new_lines = []
+                for line in lines:
+                    new_lines.append(line)
+                    if line.startswith("Environment=TARS_HOME="):
+                        new_lines.append(f"Environment=TARS_OVERLAY={overlay}")
+                content = "\n".join(new_lines)
+
+            out_path = overlay / "systemd" / f.name
+            out_path.write_text(content)
+
+            if has_sudo:
+                target = f"/etc/systemd/system/{f.name}"
+                subprocess.run(
+                    ["sudo", "-n", "ln", "-sf", str(out_path), target],
+                    capture_output=True,
+                )
+
+        if has_sudo:
+            subprocess.run(["sudo", "-n", "systemctl", "daemon-reload"], capture_output=True)
+            for timer in timers_dir.glob("*.timer"):
+                subprocess.run(
+                    ["sudo", "-n", "systemctl", "enable", "--now", timer.name],
+                    capture_output=True,
+                )
+        ok("Timers installed")
+    else:
+        info("Skipped timers")
+
+    # --- Main service ---
+    print()
+    if ask_yn("Install systemd service? (auto-start on boot)"):
+        uv_path = shutil.which("uv") or f"{Path.home()}/.local/bin/uv"
+        template_path = PROJECT_ROOT / "config" / "tars.service"
+
+        if not template_path.exists():
+            err(f"Service template not found: {template_path}")
+            return
+
+        service = template_path.read_text()
+
+        # Substitute paths
+        service = service.replace("/opt/tars", str(PROJECT_ROOT))
+        service = service.replace(
+            "ExecStart=/usr/local/bin/uv",
+            f"ExecStart={uv_path}",
+        )
+
+        # Inject environment variables after the PATH line
+        env_lines = [f"Environment=TARS_OVERLAY={overlay}"]
+        if state.get("tars_oths"):
+            env_lines.append(f"Environment=TARS_OTHS={state['tars_oths']}")
+
+        lines = service.split("\n")
+        new_lines = []
+        for line in lines:
+            new_lines.append(line)
+            if line.startswith("Environment=PATH="):
+                new_lines.extend(env_lines)
+        service = "\n".join(new_lines)
+
+        # Update ReadWritePaths to include overlay
+        tars_home = Path.home()
+        service = service.replace(
+            f"ReadWritePaths={PROJECT_ROOT}/data {PROJECT_ROOT}/agents {PROJECT_ROOT}/config /tmp {tars_home}/.cache {tars_home}/.claude",
+            f"ReadWritePaths={PROJECT_ROOT}/data {overlay}/agents {overlay}/config {overlay}/tmp /tmp {tars_home}/.cache {tars_home}/.claude",
+        )
+        service = service.replace(
+            f"ReadOnlyPaths={PROJECT_ROOT}",
+            f"ReadOnlyPaths={PROJECT_ROOT} {overlay}",
+        )
+
+        out_path = overlay / "systemd" / "tars.service"
+        out_path.write_text(service)
+        ok(f"Service file: {_display(out_path)}")
+
+        if has_sudo:
+            subprocess.run(
+                ["sudo", "-n", "ln", "-sf", str(out_path), "/etc/systemd/system/tars.service"],
+                capture_output=True,
+            )
+            subprocess.run(["sudo", "-n", "systemctl", "daemon-reload"], capture_output=True)
+            subprocess.run(
+                ["sudo", "-n", "systemctl", "enable", "tars.service"],
+                capture_output=True,
+            )
+            ok("Service installed — start with: sudo systemctl start tars")
+        else:
+            info(f"Symlink manually: sudo ln -sf {out_path} /etc/systemd/system/tars.service")
+    else:
+        info("Skipped service installation")
+
+
+def step_browser(state: dict):
+    header("Step 15: Browser Tool (optional)")
+    info("The browse_url tool uses a headless Chromium browser via Playwright")
+    info("to fetch JavaScript-rendered pages. The Python package is already")
+    info("installed; Chromium itself is a separate ~170MB download.")
+    print()
+
+    if not ask_yn("Install Chromium for the browse_url tool now?", default=True):
+        warn("Skipped. browse_url will return an error until you run:")
+        info("    uv run playwright install chromium")
+        return
+
+    cmd = ["uv", "run", "playwright", "install", "chromium"]
+    try:
+        print()
+        info("Running: " + " ".join(cmd))
+        result = subprocess.run(cmd, check=False)
+        if result.returncode == 0:
+            ok("Chromium installed — browse_url tool is ready.")
+        else:
+            err("Chromium install failed (exit " + str(result.returncode) + ").")
+            info("Run manually later: uv run playwright install chromium")
+    except FileNotFoundError:
+        err("'uv' not found on PATH.")
+        info("Run manually later: uv run playwright install chromium")
+
+
+def step_summary(state: dict):
+    header("Setup Complete")
+
+    overlay: Path = state["overlay"]
+    agent = state["agent"]
+    vault: FernetVault = state["vault"]
+
+    print(f"  {BOLD}Core:{RESET}       {PROJECT_ROOT}")
+    print(f"  {BOLD}Overlay:{RESET}    {overlay}")
+    print(f"  {BOLD}Vault:{RESET}      {len(vault.list_keys())} secret(s)")
+    print(f"  {BOLD}Team:{RESET}       {len(state['team_members'])} member(s)")
+    print(f"  {BOLD}Agent:{RESET}      {agent['display_name']} ({agent['model']})")
+
+    if state.get("selected_modules"):
+        print(f"  {BOLD}Modules:{RESET}    {', '.join(state['selected_modules'])}")
+
+    if state.get("discord_skip"):
+        print(f"  {BOLD}Discord:{RESET}    {YELLOW}not configured{RESET} — add token via vault-manage.py")
+    else:
+        print(f"  {BOLD}Discord:{RESET}    connected (guild: {state.get('guild_id', '?')})")
+
+    agent_dir = overlay / "agents" / agent["name"]
+    print(f"""
+  {BOLD}Generated files:{RESET}
+    {overlay}/config/config.yaml
+    {overlay}/config/agents.yaml
+    {overlay}/config/team.json
+    {agent_dir}/CLAUDE.md
+    {agent_dir}/.mcp.json
+
+  {BOLD}Next steps:{RESET}
+    1. Review and customise {agent_dir}/CLAUDE.md
+    2. Start T.A.R.S:  {CYAN}uv run python -m src.main{RESET}
+    3. Or:             {CYAN}sudo systemctl start tars{RESET}
+    4. Manage secrets:  {CYAN}uv run python vault-manage.py{RESET}
+    5. Settings:        {CYAN}uv run python scripts/settings.py{RESET}
+
+  {DIM}Config files are in the overlay — the engine stays clean for updates.{RESET}
+""")
+
+
+# ==========================================================================
+# Private helpers
+# ==========================================================================
+
 def _add_team_member(state: dict):
+    overlay: Path = state["overlay"]
     name = ask("Name")
     role = ask("Role")
     discord_id = ask("Discord user ID")
@@ -723,11 +1206,14 @@ def _add_team_member(state: dict):
 
     # Update team.json
     team = {"humans": state["team_members"], "agents": []}
-    Path("config/team.json").write_text(json.dumps(team, indent=2) + "\n")
+    team_path = overlay / "config" / "team.json"
+    team_path.write_text(json.dumps(team, indent=2) + "\n")
     ok(f"Added {name} ({role}, {access})")
 
 
 def _add_agent(state: dict):
+    overlay: Path = state["overlay"]
+
     agent_name = ask("Agent internal name")
     display_name = ask("Display name", agent_name.upper())
     description = ask("Description")
@@ -735,14 +1221,16 @@ def _add_agent(state: dict):
     bot_account = ask("Bot account name (from existing bots)", state.get("bot_name", "main"))
 
     # Load current agents.yaml and add
-    agents_path = Path("config/agents.yaml")
+    agents_path = overlay / "config" / "agents.yaml"
     with open(agents_path) as f:
         agents_cfg = yaml.safe_load(f) or {}
+
+    agent_dir = overlay / "agents" / agent_name
 
     agents_cfg.setdefault("agents", {})[agent_name] = {
         "display_name": display_name,
         "description": description,
-        "project_dir": f"./agents/{agent_name}",
+        "project_dir": str(agent_dir),
         "llm": {"provider": "claude_code", "model": model},
         "tools": "all",
         "skills": "all",
@@ -759,8 +1247,6 @@ def _add_agent(state: dict):
     agents_path.write_text(yaml.dump(agents_cfg, default_flow_style=False, sort_keys=False))
 
     # Create agent directory
-    project_root = Path.cwd().resolve()
-    agent_dir = Path(f"agents/{agent_name}")
     agent_dir.mkdir(parents=True, exist_ok=True)
 
     claude_md = (
@@ -773,9 +1259,18 @@ def _add_agent(state: dict):
     )
     (agent_dir / "CLAUDE.md").write_text(claude_md)
 
-    # .mcp.json — generated from mcp.yaml (source of truth)
-    from src.core.digest import regenerate_mcp_json
-    regenerate_mcp_json()
+    # .mcp.json
+    mcp_json = {
+        "mcpServers": {
+            "tars-tools": {
+                "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
+                "args": ["-m", "src.mcp_server"],
+                "cwd": str(PROJECT_ROOT),
+                "env": {"TARS_PROFILE": "${TARS_PROFILE:-}"},
+            }
+        }
+    }
+    (agent_dir / ".mcp.json").write_text(json.dumps(mcp_json, indent=2) + "\n")
 
     claude_dir = agent_dir / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
@@ -786,6 +1281,7 @@ def _add_agent(state: dict):
 
 
 def _add_bot(state: dict):
+    overlay: Path = state["overlay"]
     vault: FernetVault = state["vault"]
     bot_name = ask("Bot account name (internal)")
     token = ask_secret("Bot token")
@@ -795,7 +1291,7 @@ def _add_bot(state: dict):
     ok(f"Token stored as '{vault_key}'")
 
     # Add to config.yaml
-    config_path = Path("config/config.yaml")
+    config_path = overlay / "config" / "config.yaml"
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
 
@@ -804,141 +1300,100 @@ def _add_bot(state: dict):
     ok(f"Bot '{bot_name}' added to config")
 
 
-def step_browser(state: dict):
-    header("Step 10: Browser Tool (optional)")
-    info("The browse_url tool uses a headless Chromium browser via Playwright")
-    info("to fetch JavaScript-rendered pages. The Python package is already")
-    info("installed; Chromium itself is a separate ~170MB download.")
-    print()
+# ==========================================================================
+# File writers
+# ==========================================================================
 
-    if not ask_yn("Install Chromium for the browse_url tool now?", default=True):
-        warn("Skipped. browse_url will return an error until you run:")
-        info("    uv run playwright install chromium")
-        return
-
-    # Idempotent: playwright install chromium is a fast no-op if already present.
-    cmd = ["uv", "run", "playwright", "install", "chromium"]
-    try:
-        print()
-        info("Running: " + " ".join(cmd))
-        result = subprocess.run(cmd, check=False)
-        if result.returncode == 0:
-            ok("Chromium installed — browse_url tool is ready.")
-        else:
-            err("Chromium install failed (exit " + str(result.returncode) + ").")
-            info("Run manually later: uv run playwright install chromium")
-    except FileNotFoundError:
-        err("'uv' not found on PATH.")
-        info("Run manually later: uv run playwright install chromium")
-
-
-def step_summary(state: dict):
-    header("Setup Complete")
-
-    agent = state["agent"]
-    owner = state["owner"]
-    vault: FernetVault = state["vault"]
-
-    print(f"  {BOLD}Vault:{RESET}      {len(vault.list_keys())} secret(s)")
-    print(f"  {BOLD}Team:{RESET}       {len(state['team_members'])} member(s)")
-    print(f"  {BOLD}Agent:{RESET}      {agent['display_name']} ({agent['model']})")
-
-    if state.get("discord_skip"):
-        print(f"  {BOLD}Discord:{RESET}    {YELLOW}not configured{RESET} — add token via vault-manage.py")
-    else:
-        print(f"  {BOLD}Discord:{RESET}    connected (guild: {state.get('guild_id', '?')})")
-
-    print(f"""
-  {BOLD}Generated files:{RESET}
-    config/config.yaml
-    config/agents.yaml
-    config/team.json
-    agents/{agent['name']}/CLAUDE.md
-    agents/{agent['name']}/.mcp.json
-
-  {BOLD}Next steps:{RESET}
-    1. Review and customise agents/{agent['name']}/CLAUDE.md
-    2. Start T.A.R.S:  {CYAN}uv run python -m src.main{RESET}
-    3. Manage secrets:  {CYAN}uv run python vault-manage.py{RESET}
-    4. Add team members in conversation: @{agent['display_name']} add Bob as admin
-
-  {DIM}Config files are gitignored — your setup stays private.{RESET}
-""")
-
-
-# --- File writers ---
-
-def _ensure_mcp_yaml(project_root: Path, state: dict):
-    """Create mcp.yaml with tars-tools if it doesn't exist."""
-    mcp_path = Path("config/mcp.yaml")
-    if mcp_path.exists():
-        return  # Don't overwrite — may have user-added servers
-
-    mcp_config = {
-        "servers": {
-            "tars-tools": {
-                "transport": "stdio",
-                "command": str(project_root / ".venv" / "bin" / "python3"),
-                "args": ["-m", "src.mcp_server"],
-                "cwd": str(project_root),
-            }
-        }
-    }
-    mcp_path.parent.mkdir(parents=True, exist_ok=True)
-    mcp_path.write_text(yaml.dump(mcp_config, default_flow_style=False, sort_keys=False))
-    ok("Created config/mcp.yaml")
-
-
-def _write_yaml(path: str, data: dict, state: dict):
-    p = Path(path)
-    if p.exists() and state.get("vault_existed"):
-        if not ask_yn(f"  {path} exists. Overwrite?", default=False):
-            warn(f"Skipped {path}")
+def _write_yaml(path: Path, data: dict, state: dict):
+    if path.exists() and state.get("vault_existed"):
+        if not ask_yn(f"  {_display(path)} exists. Overwrite?", default=False):
+            warn(f"Skipped {_display(path)}")
             return
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
-    ok(f"Created {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+    ok(f"Created {_display(path)}")
 
 
-def _write_json(path: str, data: dict, state: dict):
-    p = Path(path)
-    if p.exists() and state.get("vault_existed"):
-        if not ask_yn(f"  {path} exists. Overwrite?", default=False):
-            warn(f"Skipped {path}")
+def _write_json(path: Path, data: dict, state: dict):
+    if path.exists() and state.get("vault_existed"):
+        if not ask_yn(f"  {_display(path)} exists. Overwrite?", default=False):
+            warn(f"Skipped {_display(path)}")
             return
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2) + "\n")
-    ok(f"Created {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    ok(f"Created {_display(path)}")
 
 
 def _write_file(path: Path, content: str, state: dict):
     if path.exists() and state.get("vault_existed"):
-        if not ask_yn(f"  {path} exists. Overwrite?", default=False):
-            warn(f"Skipped {path}")
+        if not ask_yn(f"  {_display(path)} exists. Overwrite?", default=False):
+            warn(f"Skipped {_display(path)}")
             return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
-    ok(f"Created {path}")
+    ok(f"Created {_display(path)}")
 
 
-# --- Main ---
+def _display(path: Path) -> str:
+    """Show path relative to PROJECT_ROOT or overlay for readability."""
+    try:
+        return str(path.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _neutralise_core_remote():
+    """Rename origin -> upstream and block push to prevent accidental pushes to the Core repo."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "remote", "get-url", "origin"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            return  # No origin remote
+
+        subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "remote", "rename", "origin", "upstream"],
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "remote", "set-url", "--push", "upstream", "no-push"],
+            capture_output=True,
+        )
+        ok("Core remote: origin → upstream (push disabled)")
+        info("Pull updates:  git pull upstream main")
+        info("Maintainers:   git remote rename upstream origin")
+    except FileNotFoundError:
+        pass  # git not installed
+
+
+def _check_sudo() -> bool:
+    """Check if passwordless sudo is available."""
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "true"],
+            capture_output=True, timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+# ==========================================================================
+# Main
+# ==========================================================================
 
 def main():
+    os.chdir(PROJECT_ROOT)
     banner()
-
-    # Pre-checks
-    if not shutil.which("claude"):
-        warn("Claude Code CLI not found — install it: npm install -g @anthropic-ai/claude-code")
-
-    if Path("config/config.yaml").exists():
-        print(f"  {YELLOW}Existing setup detected.{RESET} This wizard can update your configuration.")
-        if not ask_yn("Continue?"):
-            print("  Exited.")
-            return
 
     state: dict = {}
 
     steps = [
+        step_dependencies,
+        step_overlay,
+        step_hooks,
+        step_modules,
         step_vault,
         step_discord,
         step_team,
@@ -948,6 +1403,7 @@ def main():
         step_generate,
         step_ops_instance,
         step_extras,
+        step_systemd,
         step_browser,
         step_summary,
     ]

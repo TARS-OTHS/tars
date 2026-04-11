@@ -3,15 +3,15 @@
 ## Setup & Operations
 
 ### `setup.py` — Interactive Setup Wizard
-Guides you through first-time configuration: vault, Discord bot, team, first agent, HITL, context compression, browser tool.
+Complete setup from clone to running agent. Covers dependencies, overlay directory, git hooks, extension modules, vault, Discord, team, agents, HITL, compression, config generation, systemd services/timers, and browser tool.
 ```bash
 uv run python setup.py
 ```
 
-### `setup.sh` — System-Level Setup
-Full system setup: deps, overlay directory, module picker, Discord bot, vault, context compression, agent config, timers, systemd service.
+### `setup.sh` — Deprecated Stub
+Redirects to `setup.py`. Kept for backwards compatibility.
 ```bash
-./setup.sh
+./setup.sh  # equivalent to: uv run python setup.py
 ```
 
 ### `scripts/settings.py` — Interactive Settings Manager
