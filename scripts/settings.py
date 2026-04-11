@@ -10,6 +10,7 @@ Usage: uv run python scripts/settings.py
 import getpass
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -399,39 +400,132 @@ def edit_hitl(cfg: dict):
     show("gated_tools", hitl.get("gated_tools", []))
     print()
 
-    if ask_yn("Edit HITL settings?"):
-        hitl["channel"] = ask("Approval channel ID", hitl.get("channel", ""))
-        hitl["timeout"] = ask_int("Timeout (seconds)", hitl.get("timeout", 1800))
-        hitl["fail_mode"] = ask_choice("Fail mode", ["closed", "open"], default=hitl.get("fail_mode", "closed"))
-        hitl["poll_interval"] = ask_int("Poll interval (seconds)", hitl.get("poll_interval", 3))
+    print("  Options:")
+    print("    1) Edit channel / timeout / fail mode")
+    print("    2) Manage approvers")
+    print("    3) Manage gated tools")
+    print("    4) Back")
+    print()
 
-        # Approvers
+    while True:
+        choice = ask("Choice", "4")
+        if choice in ("4", "back", "b", ""):
+            break
+        elif choice == "1":
+            hitl["channel"] = ask("Approval channel ID", hitl.get("channel", ""))
+            hitl["timeout"] = ask_int("Timeout (seconds)", hitl.get("timeout", 1800))
+            hitl["fail_mode"] = ask_choice("Fail mode", ["closed", "open"], default=hitl.get("fail_mode", "closed"))
+            hitl["poll_interval"] = ask_int("Poll interval (seconds)", hitl.get("poll_interval", 3))
+            save_config(cfg)
+        elif choice == "2":
+            _edit_hitl_approvers(cfg, hitl)
+        elif choice == "3":
+            _edit_hitl_gated_tools(cfg, hitl)
+
+
+def _edit_hitl_approvers(cfg: dict, hitl: dict):
+    current = hitl.get("approvers", [])
+    if current:
         print()
-        current = hitl.get("approvers", [])
-        if current:
-            info(f"Current approvers: {', '.join(current)}")
-        if ask_yn("Reset approver list?", default=False):
-            current = []
-        while ask_yn("Add an approver?", default=not current):
+        for i, uid in enumerate(current, 1):
+            print(f"    {i}) {uid}")
+    else:
+        info("No approvers configured.")
+
+    print()
+    print("    a) Add approver")
+    print("    r) Remove approver")
+    print("    b) Back")
+    print()
+
+    while True:
+        choice = ask("Choice", "b")
+        if choice in ("b", "back", ""):
+            break
+        elif choice == "a":
             uid = ask("Discord user ID")
             if uid and uid not in current:
                 current.append(uid)
-        hitl["approvers"] = current
+                hitl["approvers"] = current
+                save_config(cfg)
+                ok(f"Added approver: {uid}")
+            elif uid in current:
+                warn("Already in list.")
+        elif choice == "r":
+            uid = ask("Discord user ID to remove")
+            if uid in current:
+                current.remove(uid)
+                hitl["approvers"] = current
+                save_config(cfg)
+                ok(f"Removed approver: {uid}")
+            else:
+                err("Not in list.")
 
-        # Gated tools
+
+def _edit_hitl_gated_tools(cfg: dict, hitl: dict):
+    gated = hitl.get("gated_tools", [])
+    if gated:
         print()
-        gated = hitl.get("gated_tools", [])
-        if gated:
-            info(f"Current gated tools: {', '.join(gated)}")
-        if ask_yn("Reset gated tools list?", default=False):
-            gated = []
-        while ask_yn("Add a gated tool?", default=not gated):
-            tool = ask("Tool name")
+        info("Currently gated tools (require human approval):")
+        for i, tool in enumerate(gated, 1):
+            print(f"    {i}) {tool}")
+    else:
+        info("No tools are HITL-gated. All tools execute without approval.")
+
+    # Show available tools for reference
+    tools_dir = PROJECT_ROOT / "src" / "tools"
+    available = []
+    if tools_dir.exists():
+        available = [p.stem for p in sorted(tools_dir.glob("*.py")) if not p.name.startswith("__")]
+
+    print()
+    print("    a) Add tool to gate")
+    print("    r) Remove tool from gate")
+    if available:
+        print("    l) List available tools")
+    print("    b) Back")
+    print()
+
+    while True:
+        choice = ask("Choice", "b")
+        if choice in ("b", "back", ""):
+            break
+        elif choice == "a":
+            tool = ask("Tool name (e.g. send_email, install_mcp)")
             if tool and tool not in gated:
                 gated.append(tool)
-        hitl["gated_tools"] = gated
-
-        save_config(cfg)
+                hitl["gated_tools"] = gated
+                save_config(cfg)
+                ok(f"Gated: {tool} — now requires approval")
+            elif tool in gated:
+                warn("Already gated.")
+        elif choice == "r":
+            if not gated:
+                warn("No tools to remove.")
+                continue
+            for i, t in enumerate(gated, 1):
+                print(f"    {i}) {t}")
+            target = ask("Tool number or name")
+            removed = None
+            try:
+                idx = int(target) - 1
+                if 0 <= idx < len(gated):
+                    removed = gated.pop(idx)
+            except ValueError:
+                if target in gated:
+                    gated.remove(target)
+                    removed = target
+            if removed:
+                hitl["gated_tools"] = gated
+                save_config(cfg)
+                ok(f"Ungated: {removed} — no longer requires approval")
+            else:
+                err(f"Not found: {target}")
+        elif choice == "l" and available:
+            print()
+            for t in available:
+                gated_marker = f" {YELLOW}(gated){RESET}" if t in gated else ""
+                print(f"    {t}{gated_marker}")
 
 
 def edit_rate_limits(cfg: dict):
@@ -740,6 +834,7 @@ def view_agents():
         info("No agents configured.")
         return
 
+    agent_names = list(agents.keys())
     for name, agent in agents.items():
         priv = f" {YELLOW}[privileged]{RESET}" if agent.get("privileged") else ""
         model = agent.get("llm", {}).get("model", "?")
@@ -761,6 +856,46 @@ def view_agents():
         if disallow:
             print(f"    disallow_builtins: {', '.join(disallow)}")
         print()
+
+    # Agent model editing
+    print("  Options:")
+    print("    1) Change agent model")
+    print("    2) Back")
+    print()
+
+    while True:
+        choice = ask("Choice", "2")
+        if choice in ("2", "back", "b", ""):
+            break
+        elif choice == "1":
+            if len(agent_names) == 1:
+                target = agent_names[0]
+                info(f"Only one agent: {target}")
+            else:
+                for i, name in enumerate(agent_names, 1):
+                    current_model = agents[name].get("llm", {}).get("model", "?")
+                    print(f"    {i}) {name} (model: {current_model})")
+                target_input = ask("Agent number or name")
+                target = None
+                try:
+                    idx = int(target_input) - 1
+                    if 0 <= idx < len(agent_names):
+                        target = agent_names[idx]
+                except ValueError:
+                    if target_input in agents:
+                        target = target_input
+                if not target:
+                    err(f"Unknown agent: {target_input}")
+                    continue
+
+            current_model = agents[target].get("llm", {}).get("model", "sonnet")
+            new_model = ask_choice("Model", ["sonnet", "opus", "haiku"], default=current_model)
+            if new_model != current_model:
+                agents[target].setdefault("llm", {})["model"] = new_model
+                save_agents(agents_cfg)
+                ok(f"{target}: model → {new_model}")
+            else:
+                info("No change.")
 
 
 def create_ops_instance():
@@ -952,6 +1087,168 @@ Use your MCP tools for memory — do NOT use curl or HTTP calls.
     info("See ARCHITECTURE.md → Deployment Patterns for full details.")
 
 
+def manage_timers():
+    header("Systemd Timers")
+
+    if not shutil.which("systemctl"):
+        err("systemd not available on this system.")
+        return
+
+    # Gather timer units from core and overlay
+    core_timers = PROJECT_ROOT / "config" / "timers"
+    overlay_systemd = Path(_OVERLAY) / "systemd" if _OVERLAY else None
+
+    timer_names = set()
+    if core_timers.exists():
+        for f in core_timers.iterdir():
+            if f.name.endswith(".timer"):
+                timer_names.add(f.name)
+    if overlay_systemd and overlay_systemd.exists():
+        for f in overlay_systemd.iterdir():
+            if f.name.endswith(".timer"):
+                timer_names.add(f.name)
+
+    if not timer_names:
+        info("No timer units found.")
+        return
+
+    # Show status of each timer
+    def _show_timers():
+        print()
+        for name in sorted(timer_names):
+            # Check systemd status
+            result = subprocess.run(
+                ["systemctl", "is-enabled", name],
+                capture_output=True, text=True,
+            )
+            enabled = result.stdout.strip() == "enabled"
+
+            result2 = subprocess.run(
+                ["systemctl", "is-active", name],
+                capture_output=True, text=True,
+            )
+            active = result2.stdout.strip()
+
+            # Get schedule from timer file
+            schedule = "?"
+            for search_dir in ([overlay_systemd, core_timers] if overlay_systemd else [core_timers]):
+                timer_file = search_dir / name if search_dir else None
+                if timer_file and timer_file.exists():
+                    for line in timer_file.read_text().splitlines():
+                        if line.startswith("OnCalendar="):
+                            schedule = line.split("=", 1)[1]
+                            break
+                        elif line.startswith("OnBootSec=") or line.startswith("OnUnitActiveSec="):
+                            schedule = line.split("=", 1)[1]
+                            break
+                    break
+
+            if enabled:
+                status = f"{GREEN}enabled{RESET}"
+            else:
+                status = f"{DIM}disabled{RESET}"
+            active_str = f" ({active})" if active not in ("", "inactive") else ""
+
+            label = name.replace(".timer", "").replace("tars-", "")
+            print(f"    {BOLD}{label}{RESET}: {status}{active_str}  schedule: {schedule}")
+
+    _show_timers()
+
+    print()
+    print("  Options:")
+    print("    1) Enable a timer")
+    print("    2) Disable a timer")
+    print("    3) Change timer schedule")
+    print("    4) Back")
+    print()
+
+    while True:
+        choice = ask("Choice", "4")
+        if choice in ("4", "back", "b", ""):
+            break
+        elif choice in ("1", "2"):
+            action = "enable" if choice == "1" else "disable"
+            label = ask(f"Timer name to {action} (e.g. memory-decay, health-audit)")
+            # Resolve to full unit name
+            unit = label if label.endswith(".timer") else f"tars-{label}.timer"
+            if unit not in timer_names:
+                err(f"Unknown timer: {unit}")
+                continue
+            flag = "--now" if action == "enable" else ""
+            cmd = f"sudo -n systemctl {action} {flag} {unit}".split()
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                ok(f"{unit} {action}d")
+            else:
+                stderr = result.stderr.strip()
+                if "password is required" in stderr or "a]uthentication" in stderr.lower():
+                    err(f"sudo required — run: sudo systemctl {action} {flag} {unit}")
+                else:
+                    err(f"Failed: {stderr}")
+        elif choice == "3":
+            label = ask("Timer name (e.g. memory-decay, health-audit)")
+            unit = label if label.endswith(".timer") else f"tars-{label}.timer"
+            if unit not in timer_names:
+                err(f"Unknown timer: {unit}")
+                continue
+
+            # Find the timer file (prefer overlay)
+            timer_file = None
+            if overlay_systemd and (overlay_systemd / unit).exists():
+                timer_file = overlay_systemd / unit
+            elif core_timers and (core_timers / unit).exists():
+                timer_file = core_timers / unit
+
+            if not timer_file:
+                err("Timer file not found.")
+                continue
+
+            content = timer_file.read_text()
+            current = "?"
+            for line in content.splitlines():
+                if line.startswith("OnCalendar="):
+                    current = line.split("=", 1)[1]
+                    break
+
+            info(f"Current schedule: {current}")
+            info("Examples: *-*-* 03:00:00 (daily 3am), *-*-* *:00:00 (hourly)")
+            info("          *-*-* 06,18:00:00 (twice daily)")
+            new_schedule = ask("New OnCalendar value", current)
+            if new_schedule == current:
+                info("No change.")
+                continue
+
+            # Write updated timer — if source is core, copy to overlay first
+            if overlay_systemd and timer_file.parent == core_timers:
+                timer_file = overlay_systemd / unit
+                timer_file.parent.mkdir(parents=True, exist_ok=True)
+                timer_file.write_text(content)
+                info(f"Copied to overlay: {_display_path(timer_file)}")
+
+            lines = timer_file.read_text().splitlines()
+            new_lines = []
+            for line in lines:
+                if line.startswith("OnCalendar="):
+                    new_lines.append(f"OnCalendar={new_schedule}")
+                else:
+                    new_lines.append(line)
+            timer_file.write_text("\n".join(new_lines) + "\n")
+            ok(f"Schedule updated: {new_schedule}")
+
+            # Reload if systemd is managing it
+            subprocess.run(
+                ["sudo", "-n", "systemctl", "daemon-reload"],
+                capture_output=True,
+            )
+            subprocess.run(
+                ["sudo", "-n", "systemctl", "restart", unit],
+                capture_output=True,
+            )
+            ok(f"Timer reloaded")
+
+        _show_timers()
+
+
 # ==========================================================================
 # Main menu
 # ==========================================================================
@@ -970,8 +1267,9 @@ MENU_ITEMS = [
 
 # These don't take cfg as argument — handled separately
 SPECIAL_ITEMS = [
-    ("a", "View Agents", view_agents),
+    ("a", "Agents (view / change model)", view_agents),
     ("c", "Create Agent", create_agent),
+    ("t", "Timers (systemd)", manage_timers),
     ("p", "Create Privileged Ops Instance", create_ops_instance),
     ("v", "Vault Secrets", manage_vault),
     ("q", "Quit", None),
