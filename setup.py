@@ -10,6 +10,7 @@ Usage: uv run python setup.py
 import getpass
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -256,7 +257,16 @@ def step_hooks(state: dict):
             continue
         target = hooks_dst / hook.name
         if target.exists():
-            info(f"Hook already exists: {hook.name} (skipped)")
+            if hook.read_text() != target.read_text():
+                if ask_yn(f"Hook '{hook.name}' differs from shipped version. Update?"):
+                    shutil.copy2(hook, target)
+                    target.chmod(target.stat().st_mode | stat.S_IEXEC)
+                    ok(f"Updated hook: {hook.name}")
+                    installed += 1
+                else:
+                    info(f"Hook kept: {hook.name}")
+            else:
+                info(f"Hook up to date: {hook.name}")
         else:
             shutil.copy2(hook, target)
             target.chmod(target.stat().st_mode | stat.S_IEXEC)
@@ -264,7 +274,7 @@ def step_hooks(state: dict):
             installed += 1
 
     if installed == 0:
-        ok("All hooks already installed")
+        ok("All hooks up to date")
 
 
 def step_modules(state: dict):
@@ -1016,7 +1026,7 @@ def step_systemd(state: dict):
             if not f.is_file():
                 continue
 
-            content = f.read_text().replace("/opt/tars", str(PROJECT_ROOT))
+            content = re.sub(r"/opt/tars(?=/|$)", str(PROJECT_ROOT), f.read_text())
 
             # Inject TARS_OVERLAY into service files
             if f.name.endswith(".service"):
@@ -1047,8 +1057,8 @@ def step_systemd(state: dict):
 
         service = template_path.read_text()
 
-        # Substitute paths
-        service = service.replace("/opt/tars", str(PROJECT_ROOT))
+        # Substitute paths (word-boundary aware to avoid matching /opt/tars-overlay)
+        service = re.sub(r"/opt/tars(?=/|$)", str(PROJECT_ROOT), service)
         service = service.replace(
             "ExecStart=/usr/local/bin/uv",
             f"ExecStart={uv_path}",
@@ -1061,22 +1071,22 @@ def step_systemd(state: dict):
 
         lines = service.split("\n")
         new_lines = []
-        for line in lines:
-            new_lines.append(line)
-            if line.startswith("Environment=PATH="):
-                new_lines.extend(env_lines)
-        service = "\n".join(new_lines)
-
-        # Update ReadWritePaths to include overlay
         tars_home = Path.home()
-        service = service.replace(
-            f"ReadWritePaths={PROJECT_ROOT}/data {PROJECT_ROOT}/agents {PROJECT_ROOT}/config /tmp {tars_home}/.cache {tars_home}/.claude",
-            f"ReadWritePaths={PROJECT_ROOT}/data {overlay}/agents {overlay}/config {overlay}/tmp /tmp {tars_home}/.cache {tars_home}/.claude",
-        )
-        service = service.replace(
-            f"ReadOnlyPaths={PROJECT_ROOT}",
-            f"ReadOnlyPaths={PROJECT_ROOT} {overlay}",
-        )
+        for line in lines:
+            if line.startswith("Environment=PATH="):
+                new_lines.append(line)
+                new_lines.extend(env_lines)
+            elif line.startswith("ReadWritePaths="):
+                # Replace with overlay-aware paths regardless of template formatting
+                new_lines.append(
+                    f"ReadWritePaths={PROJECT_ROOT}/data {overlay}/agents {overlay}/config "
+                    f"{overlay}/tmp /tmp {tars_home}/.cache {tars_home}/.claude"
+                )
+            elif line.startswith("ReadOnlyPaths="):
+                new_lines.append(f"ReadOnlyPaths={PROJECT_ROOT} {overlay}")
+            else:
+                new_lines.append(line)
+        service = "\n".join(new_lines)
 
         out_path = overlay / "systemd" / "tars.service"
         out_path.write_text(service)
@@ -1246,15 +1256,41 @@ def _add_agent(state: dict):
     # Create agent directory
     agent_dir.mkdir(parents=True, exist_ok=True)
 
-    claude_md = (
-        f"# {display_name}\n\n"
-        f"## Identity\n\nYou are **{display_name}**. {description}.\n\n"
-        f"## File System\n\n"
-        f"Your project directory is `{agent_dir}/`. "
-        f"Use `$TARS_TMP` for generated files. "
-        f"NEVER `git commit` or `git push` in the T.A.R.S core engine directory.\n"
-    )
-    (agent_dir / "CLAUDE.md").write_text(claude_md)
+    claude_md = f"""# {display_name}
+
+## Identity
+
+You are **{display_name}**. {description}.
+
+## Guidelines
+
+- Search memory before asking the user for context you might already have
+- Remember important things from conversations by storing them to memory
+- When handling tasks, break them down and track progress
+
+## File System
+
+You run inside a sandboxed T.A.R.S instance. Your project directory is in the **overlay**, separate from the engine code.
+
+- **Your directory:** `{agent_dir}/` — your CLAUDE.md, config, and data live here
+- **Generated files:** use `$TARS_TMP` (media, docs, scratch) for any files you create
+- **NEVER** `git add`, `git commit`, or `git push` in the T.A.R.S core engine directory — it is the framework, not your workspace. Agent configs, custom files, and deployment data belong in the overlay.
+
+## Memory System
+
+Use your MCP tools for memory — do NOT use curl or HTTP calls.
+
+- `memory_search` — keyword/FTS5 search
+- `memory_semantic_search` — embedding-based conceptual search
+- `memory_store` — save important information
+- `memory_forget` — remove a memory by ID
+"""
+    claude_md_path = agent_dir / "CLAUDE.md"
+    if not claude_md_path.exists():
+        claude_md_path.write_text(claude_md)
+        ok(f"Created {_display(claude_md_path, overlay)}")
+    else:
+        info(f"CLAUDE.md already exists: {_display(claude_md_path, overlay)} (skipped)")
 
     # .mcp.json
     mcp_json = {
@@ -1267,12 +1303,22 @@ def _add_agent(state: dict):
             }
         }
     }
-    (agent_dir / ".mcp.json").write_text(json.dumps(mcp_json, indent=2) + "\n")
+    mcp_json_path = agent_dir / ".mcp.json"
+    if not mcp_json_path.exists():
+        mcp_json_path.write_text(json.dumps(mcp_json, indent=2) + "\n")
+        ok(f"Created {_display(mcp_json_path, overlay)}")
+    else:
+        info(f".mcp.json already exists (skipped)")
 
     claude_dir = agent_dir / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
     settings = {"permissions": {"allow": ["mcp__tars-tools__*"], "deny": []}}
-    (claude_dir / "settings.json").write_text(json.dumps(settings, indent=2) + "\n")
+    settings_path = claude_dir / "settings.json"
+    if not settings_path.exists():
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        ok(f"Created {_display(settings_path, overlay)}")
+    else:
+        info(f"settings.json already exists (skipped)")
 
     ok(f"Agent '{display_name}' added")
 
@@ -1331,8 +1377,13 @@ def _write_file(path: Path, content: str, state: dict):
     ok(f"Created {_display(path)}")
 
 
-def _display(path: Path) -> str:
+def _display(path: Path, overlay: Path | None = None) -> str:
     """Show path relative to PROJECT_ROOT or overlay for readability."""
+    if overlay:
+        try:
+            return f"<overlay>/{path.relative_to(overlay)}"
+        except ValueError:
+            pass
     try:
         return str(path.relative_to(PROJECT_ROOT))
     except ValueError:
@@ -1369,7 +1420,7 @@ def _check_sudo() -> bool:
     try:
         result = subprocess.run(
             ["sudo", "-n", "true"],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=2,
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
