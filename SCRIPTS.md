@@ -3,15 +3,15 @@
 ## Setup & Operations
 
 ### `setup.py` — Interactive Setup Wizard
-Guides you through first-time configuration: vault, Discord bot, team, first agent, HITL, context compression, browser tool.
+Complete setup from clone to running agent. Covers dependencies, overlay directory, git hooks, extension modules, vault, Discord, team, agents, HITL, compression, config generation, systemd services/timers, and browser tool.
 ```bash
 uv run python setup.py
 ```
 
-### `setup.sh` — System-Level Setup
-Full system setup: deps, overlay directory, module picker, Discord bot, vault, context compression, agent config, timers, systemd service.
+### `setup.sh` — Deprecated Stub
+Redirects to `setup.py`. Kept for backwards compatibility.
 ```bash
-./setup.sh
+./setup.sh  # equivalent to: uv run python setup.py
 ```
 
 ### `scripts/settings.py` — Interactive Settings Manager
@@ -75,10 +75,17 @@ source scripts/lib-alert.sh
 send_alert "Something happened"
 ```
 
-### `scripts/install-timers.sh` — Timer Installer
+### `scripts/install-timers.sh` — Timer Installer (legacy)
 Installs all systemd timer+service files from `config/timers/`.
 ```bash
 sudo scripts/install-timers.sh
+```
+
+### `scripts/install-systemd.sh` — Systemd Unit Installer
+Symlinks generated unit files (timers + service) into `/etc/systemd/system/`, runs daemon-reload, enables timers. Called by `setup.py` automatically.
+```bash
+# Called by setup.py, or run manually:
+sudo bash scripts/install-systemd.sh <overlay-dir> [--enable-service]
 ```
 
 ### `scripts/compress-context.sh` — Context Compression
