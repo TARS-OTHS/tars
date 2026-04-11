@@ -92,9 +92,9 @@ Zero output = clean. Any output = run `sudo chown -R tars:tars <paths>` on the l
 This repo is **Layer 1 (Core)** — the open-source engine. It is loaded by all deployments.
 
 ```
-Layer 1: TARS-OTHS/tars     (this repo, public)  — Core engine + generic tools
-Layer 2: TARS-OTHS/oths     (private)            — Domain-specific tools/skills
-Layer 3: TARS-OTHS/<client>  (private)            — Per-deployment config, agents, data
+Layer 1: <org>/tars          (this repo, public)  — Core engine + generic tools
+Layer 2: (private repo)                           — Domain-specific tools/skills
+Layer 3: (private repo)                           — Per-deployment config, agents, data
 ```
 
 The engine discovers Layer 2 and 3 via env vars:
