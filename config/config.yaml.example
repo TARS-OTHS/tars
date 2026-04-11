@@ -23,6 +23,7 @@ defaults:
     provider: claude_code
     model: sonnet
     max_tokens: 4096
+    # mcp_config: /path/to/mcp.yaml  # Optional: external MCP servers for all agents
   session:
     max_history: 50
     summarize_after: 30
