@@ -666,6 +666,12 @@ You are **{display_name}**. {description}.
 - Remember important things from conversations by storing them to memory
 - When handling tasks, break them down and track progress
 
+## File System
+
+Your project directory is `{agent_dir}/`. Use `$TARS_TMP` for generated files (media, docs, scratch).
+
+**NEVER** `git add`, `git commit`, or `git push` in the T.A.R.S core engine directory — it is the framework, not your workspace. Agent configs, custom files, and deployment data belong in the overlay.
+
 ## Memory System
 
 Use your MCP tools for memory — do NOT use curl or HTTP calls.
@@ -684,7 +690,7 @@ The team roster is at `config/team.json`. User context is injected before each m
         warn(f"CLAUDE.md already exists — skipping (won't overwrite)")
     else:
         claude_md_path.write_text(claude_md)
-        ok(f"Created {agent_dir.relative_to(PROJECT_ROOT)}/CLAUDE.md")
+        ok(f"Created {_display_path(agent_dir)}/CLAUDE.md")
 
     # .mcp.json
     mcp_path = agent_dir / ".mcp.json"
@@ -874,6 +880,13 @@ You are **{display_name}** — the unsandboxed ops and dev agent.
 - Your main counterpart runs inside the sandboxed `tars.service`. You handle what it can't: code edits, deploys, service restarts, infra debugging.
 - Be surgical. You have full filesystem access. Think before you write.
 - Bias toward reversible actions. Prefer git-tracked edits over raw file writes.
+
+## File System
+
+- **Your directory:** `{agent_dir}/` — your CLAUDE.md, config, and data live here
+- **Generated files:** use `$TARS_TMP` for media, docs, and scratch files
+- When editing Core framework code, always use a feature branch + PR — never commit directly to main
+- Deployment-specific files (agent configs, personal data, custom tools) belong in the overlay, not in Core
 
 ## Memory System
 
