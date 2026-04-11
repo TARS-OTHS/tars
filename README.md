@@ -1,9 +1,28 @@
-# T.A.R.S — The Agent Routing System
+```
+╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║   ████████╗ █████╗ ██████╗ ███████╗                              ║
+║   ╚══██╔══╝██╔══██╗██╔══██╗██╔════╝                              ║
+║      ██║   ███████║██████╔╝███████╗                               ║
+║      ██║   ██╔══██║██╔══██╗╚════██║                               ║
+║      ██║   ██║  ██║██║  ██║███████║                               ║
+║      ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝                              ║
+║                                                                  ║
+║   TRUSTED  AGENT  RUNTIME  STACK          v2 . MIT . Python 3.12 ║
+║                                                                  ║
+║   > SYSTEM ONLINE                                                ║
+║   > AGENTS LOADED .......... OK                                  ║
+║   > VAULT SEALED ........... OK                                  ║
+║   > MEMORY ACTIVE .......... OK                                  ║
+║   > AWAITING INPUT _                                             ║
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+```
 
-A lightweight, single-process agent framework that connects messaging platforms to persistent LLM sessions with tools, memory, and multi-agent coordination.
+Single-process agent framework. Connect messaging platforms to persistent LLM sessions with tools, memory, and multi-agent coordination. No containers. No microservices. One process, full control.
 
 ```
-Discord message → Router → Agent Manager → Claude Code CLI → MCP Tools → Response
+INCOMING SIGNAL ──→ Router ──→ Agent Manager ──→ Claude Code CLI ──→ MCP Tools ──→ RESPONSE
 ```
 
 ## What It Does
@@ -154,22 +173,23 @@ Remove a file = remove those tools. Add your own integrations (Shopify, Stripe, 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│                  T.A.R.S Process                  │
-│                                                   │
-│  Connector (Discord — Telegram, Slack on roadmap) │
-│       → Router (channel/category → agent)         │
-│       → Access Control (3-layer)                  │
-│       → Agent Manager (context, memory, sessions) │
-│       → Claude Code CLI (LLM engine)              │
-│       → MCP Server (tools + middleware)            │
-│           ├── Rate limit                          │
-│           ├── HITL gate                           │
-│           ├── Execute tool                        │
-│           └── Audit log                           │
-│                                                   │
-│  Vault (Fernet) │ Memory (SQLite) │ Hot Reload    │
-└──────────────────────────────────────────────────┘
+╔══════════════════════════════════════════════════════╗
+║                   T.A.R.S  PROCESS                   ║
+║                                                      ║
+║   CONNECTOR ─── Discord (Telegram, Slack: roadmap)   ║
+║       │                                              ║
+║       ├── ROUTER ──── channel/category → agent       ║
+║       ├── ACCESS ──── 3-layer auth gate              ║
+║       ├── AGENTS ──── context, memory, sessions      ║
+║       ├── LLM ─────── Claude Code CLI subprocess     ║
+║       └── MCP ─────── tools + middleware             ║
+║              ├── Rate limit                          ║
+║              ├── HITL gate                           ║
+║              ├── Execute tool                        ║
+║              └── Audit log                           ║
+║                                                      ║
+║   ▓ VAULT (Fernet)  ▓ MEMORY (SQLite)  ▓ HOT RELOAD ║
+╚══════════════════════════════════════════════════════╝
 ```
 
 Everything is a pluggable module with auto-discovery. Drop a file in the right folder, reference it in config, it works.
@@ -284,9 +304,13 @@ uv run python scripts/test-tools.py
 
 ## Security
 
+```
+> DEFCON STATUS: LOCKED DOWN
+```
+
 - **Fernet vault** — AES-128-CBC encrypted at rest, PBKDF2 key derivation (100k iterations)
 - **HITL gates** — configurable per-tool, Discord reaction approval with timeout
-- **Three-layer access control** — sender tier x agent tier, per-message tool filtering, static agent ceiling
+- **Three-layer access control** — sender tier × agent tier, per-message tool filtering, static agent ceiling
 - **Rate limiting** — per-tool per-agent sliding window
 - **Audit log** — every tool call, HITL decision, auth event (JSONL)
 - **Bot loop detection** — sliding window prevents runaway agent-to-agent ping-pong
@@ -316,4 +340,10 @@ uv run python -m src.main
 
 ## License
 
-MIT
+MIT — do whatever you want with it.
+
+```
+> A STRANGE GAME.
+> THE ONLY WINNING MOVE IS TO BUILD YOUR OWN AGENTS.
+> HOW ABOUT A NICE GAME OF CHESS?
+```
