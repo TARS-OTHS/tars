@@ -50,5 +50,10 @@ security:
     defaults:
       max_per_hour: 100
 
+  compression:
+    enabled: false           # compress agent context files to reduce input tokens
+    level: standard          # lite (articles + filler) | standard (full compression)
+    # memory_recall: false   # compress memories at injection time (requires core wiring)
+
 admin_users:
   discord: ["YOUR_DISCORD_USER_ID"]

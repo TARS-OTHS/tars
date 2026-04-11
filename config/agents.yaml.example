@@ -19,6 +19,9 @@ agents:
       - Write
       - Bash
       - MultiEdit
+    # compression:             # per-agent override (inherits from config.yaml defaults)
+    #   enabled: true
+    #   level: lite
     routing:
       discord:
         account: main
