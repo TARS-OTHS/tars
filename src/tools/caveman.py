@@ -99,7 +99,8 @@ async def caveman(ctx: ToolContext, level: str = "") -> str:
             return "CAVEMAN.md not found in config"
         rel_path = os.path.relpath(caveman_md_path, os.path.dirname(claude_md_path))
         ref_line = f"See @{rel_path} — active {level} mode."
-        new_lines.extend(["", SECTION_HEADER, "", ref_line, ""])
+        enforce = "CRITICAL: Apply caveman rules to EVERY response from first message. No normal prose. No exceptions."
+        new_lines.extend(["", SECTION_HEADER, "", enforce, "", ref_line, ""])
 
     with open(claude_md_path, "w") as f:
         f.write("\n".join(new_lines))
