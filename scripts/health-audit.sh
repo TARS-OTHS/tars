@@ -74,11 +74,9 @@ if [ "$(echo "$load > 3.0" | bc 2>/dev/null || echo 0)" = "1" ]; then
     ISSUES="${ISSUES}\n- **Load**: $load (high for 4 CPU)"
 fi
 
-# 11. Host security baseline — cloud metadata must be blocked (cloud VPS only)
+# 11. Cloud metadata — should not be reachable
 if curl -s --max-time 1 http://169.254.169.254/ >/dev/null 2>&1; then
-    if ! grep -q '169.254.169.254' /etc/iptables/rules.v4 2>/dev/null; then
-        ISSUES="${ISSUES}\n- **host**: cloud metadata iptables rule MISSING"
-    fi
+    ISSUES="${ISSUES}\n- **host**: cloud metadata endpoint is reachable (should be blocked)"
 fi
 
 # 12. Public port exposure — flag unexpected listeners
