@@ -8,6 +8,6 @@ Type=oneshot
 User=tars
 Group=tars
 WorkingDirectory=/opt/tars
-ExecStart=/opt/tars/scripts/health-audit.sh
+ExecStart=/opt/tars/scripts/health-audit.sh --report
 StandardOutput=append:/var/log/tars-security.log
 StandardError=append:/var/log/tars-security.log

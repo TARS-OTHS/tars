@@ -53,3 +53,24 @@ send_alert() {
         -H "Content-Type: application/json" \
         -d "$(jq -n --arg content "$msg" '{content: $content}')" > /dev/null 2>&1 || true
 }
+
+# Post a long report to Discord as a file attachment.
+# Falls back to chunked messages if file upload fails.
+send_report() {
+    local report="$1"
+    local filename="${2:-report.txt}"
+    if [ -z "$_BOT_TOKEN" ]; then
+        _BOT_TOKEN=$(_get_bot_token)
+    fi
+    if [ -z "$_BOT_TOKEN" ] || [ -z "$ALERT_CHANNEL" ]; then
+        echo "REPORT (no Discord): $report" >&2
+        return
+    fi
+    local tmpfile
+    tmpfile=$(mktemp /tmp/tars-report-XXXXXX.txt)
+    echo "$report" > "$tmpfile"
+    curl -s -X POST "https://discord.com/api/v10/channels/$ALERT_CHANNEL/messages" \
+        -H "Authorization: Bot $_BOT_TOKEN" \
+        -F "files[0]=@${tmpfile};filename=${filename}" > /dev/null 2>&1 || true
+    rm -f "$tmpfile"
+}
