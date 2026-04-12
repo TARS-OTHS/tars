@@ -3,9 +3,9 @@
 ║                                                                  ║
 ║   ████████╗ █████╗ ██████╗ ███████╗                              ║
 ║   ╚══██╔══╝██╔══██╗██╔══██╗██╔════╝                              ║
-║      ██║   ███████║██████╔╝███████╗                               ║
-║      ██║   ██╔══██║██╔══██╗╚════██║                               ║
-║      ██║   ██║  ██║██║  ██║███████║                               ║
+║      ██║   ███████║██████╔╝███████╗                              ║
+║      ██║   ██╔══██║██╔══██╗╚════██║                              ║
+║      ██║   ██║  ██║██║  ██║███████║                              ║
 ║      ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝                              ║
 ║                                                                  ║
 ║   TRUSTED  AGENT  RUNTIME  STACK          v2 . MIT . Python 3.12 ║
@@ -43,55 +43,57 @@ INCOMING SIGNAL ──→ Router ──→ Agent Manager ──→ Claude Code C
 
 ## BOOT SEQUENCE
 
+Only prerequisite is **Python 3.12+** and a **Linux VPS** (2 CPU, 4GB RAM). The setup wizard installs everything else (uv, jq, Claude Code CLI) and walks you through vault creation, Discord bot connection, team setup, agent configuration, HITL approval, systemd units, and optional headless browser.
+
 ```bash
-git clone https://github.com/TARS-OTHS/tars.git
-cd tars
-scripts/sync.sh            # install deps (all layers if TARS_OTHS/TARS_OVERLAY set)
+git clone https://github.com/TARS-OTHS/tars.git /opt/tars
+cd /opt/tars
 uv run python setup.py
 ```
 
-The setup wizard walks you through: vault creation, Discord bot connection, team setup, first agent configuration, HITL approval settings, and (optionally) downloading headless Chromium for the `browse_url` tool.
+> **Note:** if you don't have `uv` yet, install it first: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-> **Note on the browser tool:** `uv sync` installs the Playwright Python package, but the Chromium binary (~170MB) is a separate download. The setup wizard offers to run `playwright install chromium` for you. To install it manually later:
-> ```bash
-> uv run playwright install chromium
-> ```
+> **Browser tool:** the `browse_url` tool requires a Chromium binary (~170MB) that isn't installed by `uv sync`. The setup wizard offers to install it, or run manually: `uv run playwright install chromium`
 
 Then start T.A.R.S:
 
 ```bash
+# Development
 uv run python -m src.main
-```
 
-### MINIMUM REQUIREMENTS
-
-```
-PREFLIGHT CHECK
-├── Python .......... 3.12+
-├── Package mgr ..... uv (https://docs.astral.sh/uv/)
-├── LLM engine ...... Claude Max subscription (Claude Code CLI)
-├── Comms ........... Discord bot token (free)
-└── Hardware ........ Linux VPS, 2 CPU, 4GB RAM
-```
-
-### INSTALL CLAUDE CODE
-
-```bash
-npm install -g @anthropic-ai/claude-code
-claude login
-```
-
-### DAEMONIZE
-
-The setup wizard (`setup.py`) generates and installs systemd units automatically. To install manually:
-
-```bash
-# Generate units into overlay, symlink, enable
-sudo bash scripts/install-systemd.sh /path/to/overlay --enable-service
+# Production (setup.py installs the systemd unit)
 sudo systemctl start tars.service
-
-# View logs
 journalctl -u tars -f
+```
+
+### POST-INSTALL
+
+Use `settings.py` to modify configuration without re-running setup:
+
+```bash
+uv run python scripts/settings.py
+```
+
+TUI menu for: LLM defaults, connectors, memory, HITL gates, rate limits, agents, timers, vault secrets, and more. See [SCRIPTS.md](SCRIPTS.md) for the full menu.
+
+### UPDATING
+
+```bash
+cd /opt/tars
+git pull
+scripts/sync.sh                    # must run before restart — installs deps across all layers
+sudo systemctl restart tars.service
+```
+
+> **Warning:** do not skip `scripts/sync.sh`. The service unit uses `uv run --no-sync`, so new dependencies won't be installed at runtime. Skipping sync after a pull can crash the service or silently run stale code.
+
+### FILE OWNERSHIP
+
+All files under the install directory are owned by `tars:tars` (the service user). If you edit files as root, `chown tars:tars` them back — root-owned files in the tree break `uv sync` and are not writable by the service.
+
+```bash
+# Check for root-owned files
+find /opt/tars -not -user tars 2>/dev/null
 ```
 
 ### PROFILES
@@ -283,7 +285,7 @@ MEMORY SUBSYSTEM ACTIVE
 
 ## CONFIGURATION
 
-The setup wizard (`uv run python setup.py`) generates all config files interactively. Or copy the examples:
+The setup wizard (`uv run python setup.py`) generates all config files interactively. Post-install, use `uv run python scripts/settings.py` to modify any setting. Or copy the examples manually:
 
 ```bash
 cp config/config.yaml.example config/config.yaml
@@ -305,8 +307,14 @@ uv run python -m src.main --profile test
 # Setup wizard
 uv run python setup.py
 
+# Settings manager (post-install)
+uv run python scripts/settings.py
+
 # Vault management
 uv run python vault-manage.py
+
+# Update a running install
+git pull && scripts/sync.sh && sudo systemctl restart tars.service
 
 # Run tool tests
 uv run python scripts/test-tools.py

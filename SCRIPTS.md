@@ -42,13 +42,16 @@ uv run python scripts/settings.py
 2. **Connectors** — Discord bot accounts, enable/disable platforms
 3. **Session** — max history, summarize threshold
 4. **Memory** — backend, semantic search toggle, decay settings, max results
-5. **HITL** — approval channel, approvers, timeout, fail mode, gated tools
+5. **HITL** — approval channel/timeout, approver management, gated tools (add/remove with available tools list)
 6. **Rate limits** — mode (enforce/log), per-tool limits, wildcard patterns
 7. **Compression** — enable/disable, compression level
 8. **Admin users** — Discord user IDs with admin access
-9. **Vault secrets** — add, update, delete, list vault entries
-10. **Agent overview** — list all agents, view/edit agent config
-11. **Add agent** — create a new agent interactively
+9. **Identity** — system name, log level, data directory
+- **a) Agents** — list all agents, change model per agent
+- **c) Create agent** — new agent with tier selection, bot assignment, channel filtering
+- **t) Timers** — list systemd timers with status/schedule, enable/disable, edit schedules
+- **p) Ops instance** — create privileged dual-instance setup
+- **v) Vault secrets** — add, update, delete, list vault entries
 
 ### `vault-manage.py` — Interactive Vault Manager
 Manage encrypted secrets (add, update, delete, list, check).
