@@ -20,8 +20,11 @@ print(c.get('security', {}).get('alert_channel', ''), end='')
 }
 ALERT_CHANNEL="${TARS_ALERT_CHANNEL:-$(_resolve_alert_channel)}"
 
-# Secrets always live in core vault
+# Resolve secrets.enc — overlay takes priority over core
 _SECRETS_ENC="$TARS_HOME/config/secrets.enc"
+if [ -n "$TARS_OVERLAY" ] && [ -f "$TARS_OVERLAY/config/secrets.enc" ]; then
+    _SECRETS_ENC="$TARS_OVERLAY/config/secrets.enc"
+fi
 
 _get_bot_token() {
     "$TARS_VENV" -c "

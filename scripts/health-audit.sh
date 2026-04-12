@@ -74,14 +74,25 @@ if [ "$(echo "$load > 3.0" | bc 2>/dev/null || echo 0)" = "1" ]; then
     ISSUES="${ISSUES}\n- **Load**: $load (high for 4 CPU)"
 fi
 
-# 11. Host security baseline — cloud metadata must be blocked
-if ! grep -q '169.254.169.254' /etc/iptables/rules.v4 2>/dev/null; then
-    ISSUES="${ISSUES}\n- **host**: cloud metadata iptables rule MISSING"
+# 11. Cloud metadata — should not be reachable
+if curl -s --max-time 1 http://169.254.169.254/ >/dev/null 2>&1; then
+    ISSUES="${ISSUES}\n- **host**: cloud metadata endpoint is reachable (should be blocked)"
 fi
 
 # 12. Public port exposure — flag unexpected listeners
-EXPECTED_PUBLIC="${TARS_EXPECTED_PORTS:-22 80 443}"
-PUBLIC_PORTS=$(ss -tlnp 2>/dev/null | grep -v '127.0.0.1\|172\.1[6-9]\.\|172\.2[0-9]\.\|172\.3[0-1]\.\|::1\|100\.6[4-9]\.\|100\.[7-9][0-9]\.\|100\.1[0-1][0-9]\.\|100\.12[0-7]\.\|fd7a:115c:a1e0' | awk 'NR>1 {print $4}' | grep -oE '[0-9]+$' | sort -nu)
+_resolve_expected_ports() {
+    local cfg=""
+    [ -n "${TARS_OVERLAY:-}" ] && [ -f "$TARS_OVERLAY/config/config.yaml" ] && cfg="$TARS_OVERLAY/config/config.yaml"
+    [ -z "$cfg" ] && [ -f "$TARS_HOME/config/config.yaml" ] && cfg="$TARS_HOME/config/config.yaml"
+    [ -n "$cfg" ] && "$TARS_HOME/.venv/bin/python" -c "
+import yaml, sys
+c = yaml.safe_load(open('$cfg'))
+print(c.get('security', {}).get('expected_ports', ''), end='')
+" 2>/dev/null || echo -n ""
+}
+EXPECTED_PUBLIC="${TARS_EXPECTED_PORTS:-$(_resolve_expected_ports)}"
+EXPECTED_PUBLIC="${EXPECTED_PUBLIC:-22 80 443}"
+PUBLIC_PORTS=$(ss -tlnp 2>/dev/null | grep -v '127\.\|172\.1[6-9]\.\|172\.2[0-9]\.\|172\.3[0-1]\.\|::1\|100\.6[4-9]\.\|100\.[7-9][0-9]\.\|100\.1[0-1][0-9]\.\|100\.12[0-7]\.\|fd7a:115c:a1e0' | awk 'NR>1 {print $4}' | grep -oE '[0-9]+$' | sort -nu)
 for port in $PUBLIC_PORTS; do
     expected=false
     for ep in $EXPECTED_PUBLIC; do
