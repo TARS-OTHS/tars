@@ -1,9 +1,9 @@
 [Unit]
-Description=T.A.R.S Health Audit (every 6 hours, offset)
+Description=T.A.R.S Health Audit (every 12 hours)
 
 [Timer]
 OnBootSec=20min
-OnCalendar=*-*-* 00,06,12,18:30:00
+OnCalendar=*-*-* 00,12:30:00
 Persistent=true
 
 [Install]

@@ -27,7 +27,7 @@ async def system_audit(ctx: ToolContext) -> str:
     except asyncio.TimeoutError:
         proc.kill()
         return "ERROR: health-audit.sh timed out (60s)"
-    output = stdout.decode().strip()
-    if proc.returncode != 0 and stderr:
-        output += f"\n\nstderr: {stderr.decode().strip()}"
-    return output or "(no output)"
+    if proc.returncode != 0:
+        err = stderr.decode().strip() if stderr else "unknown error"
+        return f"ERROR: health-audit.sh failed (exit {proc.returncode}): {err}"
+    return "Audit posted to #ops-alert"

@@ -551,14 +551,14 @@ done < <(_yaml_list "agent_tmp")
 # ── 12. Logs ────────────────────────────────────────────────────────────
 REPORT="${REPORT}\n\n## Logs"
 
-journal_size=$(journalctl --disk-usage 2>/dev/null | grep -oP '[\d.]+[MG]' | head -1)
+journal_size=$(journalctl --disk-usage 2>/dev/null | grep -oP '[\d.]+[MG]' | head -1 || true)
 [ -n "$journal_size" ] && _ok "Journal size: $journal_size"
 
 while IFS= read -r svc; do
     [ -z "$svc" ] && continue
     err_count=$(journalctl -u "$svc" --since '6 hours ago' --no-pager -p err 2>/dev/null | grep -cv '^--\|^$\|^Hint:' || echo 0)
     [ "$err_count" -gt 0 ] 2>/dev/null && _warn "$svc — $err_count error lines in last 6h"
-done < <(_yaml_list "services")
+done < <(_yaml_list "services") || true
 
 # ── 13. Git State ───────────────────────────────────────────────────────
 REPORT="${REPORT}\n\n## Git State"
@@ -580,7 +580,8 @@ done
 cleaned=$(find /tmp -maxdepth 1 -name "tars-*" -type f -user tars -mmin +120 -delete -print 2>/dev/null | wc -l)
 [ "$cleaned" -gt 0 ] && log "Cleaned $cleaned old temp files"
 
-journal_mb=$(journalctl --disk-usage 2>/dev/null | grep -oP '\d+\.\d+M' | head -1 | tr -d 'M' || echo "0")
+journal_mb=$(journalctl --disk-usage 2>/dev/null | grep -oP '\d+\.\d+M' | head -1 | tr -d 'M' || true)
+journal_mb="${journal_mb:-0}"
 if [ "$(echo "$journal_mb > 200" | bc 2>/dev/null || echo 0)" = "1" ]; then
     journalctl --vacuum-size=100M >/dev/null 2>&1
     log "Rotated journal (was ${journal_mb}MB)"
@@ -598,12 +599,15 @@ fi
 
 TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
 
+HEADER="System Audit: ${DEPLOYMENT^^}
+${STATUS} — ${PASSED} passed, ${WARNED} warnings, ${FAILED} failures
+Run at ${TIMESTAMP}"
+FULL_REPORT="${HEADER}$(echo -e "$REPORT")"
+
 if [ "$REPORT_MODE" = "true" ]; then
-    # Full report for on-demand
-    echo "System Audit: ${DEPLOYMENT^^}"
-    echo "${STATUS} — ${PASSED} passed, ${WARNED} warnings, ${FAILED} failures"
-    echo "Run at ${TIMESTAMP}"
-    echo -e "$REPORT"
+    # Full report — post to Discord and stdout
+    send_report "$FULL_REPORT" "health-audit-$(date -u +%Y%m%d-%H%M).txt"
+    echo "$FULL_REPORT"
 else
     # Timer mode: alert on issues, heartbeat on success
     if [ -n "$ISSUES" ]; then
