@@ -908,27 +908,38 @@ class DiscordBot:
 
     @staticmethod
     async def _run_direct_command(interaction: discord.Interaction, command: str) -> None:
-        """Run a shell command directly and post output to Discord, bypassing the LLM."""
+        """Run a skill command directly and post output to Discord, bypassing the LLM.
+
+        The command field comes from skill YAML on disk (not user input).
+        Uses subprocess_exec with shlex.split to avoid shell injection.
+        """
         import asyncio
         import os
+        import shlex
         env = {**os.environ, "TERM": "dumb"}
         try:
             tars_home = os.environ.get("TARS_HOME", "/opt/tars")
-            full_cmd = os.path.join(tars_home, command) if not command.startswith("/") else command
-            proc = await asyncio.create_subprocess_shell(
-                full_cmd,
+            parts = shlex.split(command)
+            if not parts[0].startswith("/"):
+                parts[0] = os.path.join(tars_home, parts[0])
+            if not os.path.isfile(parts[0]):
+                output = f"Command not found: {parts[0]}"
+                await interaction.followup.send(f"```\n{output}\n```")
+                return
+            proc = await asyncio.create_subprocess_exec(
+                *parts,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
             output = stdout.decode().strip()
             if not output and stderr:
                 output = f"stderr: {stderr.decode().strip()}"
             if not output:
                 output = "(no output)"
         except asyncio.TimeoutError:
-            output = "Command timed out (30s)"
+            output = "Command timed out (60s)"
         except Exception as e:
             output = f"Error: {e}"
 
