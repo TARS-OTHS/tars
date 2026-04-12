@@ -29,7 +29,7 @@ from src.vault.fernet import FernetVault
 from pathlib import Path
 v = FernetVault('$_SECRETS_ENC')
 v.unlock(Path.home().joinpath('.config/tars-vault-key').read_text().strip())
-print(v.get('active-discord-token') or '', end='')
+print(v.get('active-discord-token') or v.get('discord-token') or '', end='')
 " 2>/dev/null
 }
 
