@@ -42,13 +42,17 @@ logger = logging.getLogger("mcp-server")
 
 
 def _resolve_agent_id() -> str:
-    """Derive agent ID from environment. Falls back to 'mcp-agent'."""
+    """Derive agent ID from environment or cwd. Falls back to 'mcp-agent'."""
     agent_id = os.environ.get("TARS_AGENT_ID")
     if agent_id:
         return agent_id
     project_dir = os.environ.get("TARS_PROJECT_DIR", "")
     if project_dir:
         return Path(project_dir).name
+    # Claude Code launches MCP from the project dir (e.g. /opt/tars/agents/rescue)
+    cwd = Path.cwd()
+    if cwd.parent.name == "agents":
+        return cwd.name
     return "mcp-agent"
 
 
