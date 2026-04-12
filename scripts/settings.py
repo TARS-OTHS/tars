@@ -1183,7 +1183,7 @@ def create_ops_instance():
 
     template_path = PROJECT_ROOT / "config" / "templates" / "rescue-claude.md"
     if template_path.exists():
-        claude_md = template_path.read_text().replace("{display_name}", display_name).replace("{agent_dir}", str(agent_dir))
+        claude_md = template_path.read_text().format(display_name=display_name, agent_dir=agent_dir)
     else:
         claude_md = f"# {display_name}\n\nYou are {display_name} — the unsandboxed ops and dev agent.\n"
         warn("Template not found at config/templates/rescue-claude.md — using minimal fallback")
