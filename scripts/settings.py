@@ -876,121 +876,6 @@ The team roster is at `config/team.json`. User context is injected before each m
     info("Restart T.A.R.S to pick up the new agent.")
 
 
-def _manage_caveman(agents: dict, agent_names: list, agents_cfg: dict):
-    """Toggle caveman communication style per agent."""
-    overlay = _OVERLAY
-    if not overlay:
-        err("TARS_OVERLAY not set — can't manage CLAUDE.md files")
-        return
-
-    overlay_path = Path(overlay)
-    caveman_src = PROJECT_ROOT / "config" / "CAVEMAN.md"
-    caveman_dst = overlay_path / "config" / "CAVEMAN.md"
-
-    # Ensure CAVEMAN.md exists in overlay config
-    if not caveman_dst.exists() and caveman_src.exists():
-        caveman_dst.parent.mkdir(parents=True, exist_ok=True)
-        caveman_dst.write_text(caveman_src.read_text())
-        ok(f"Copied CAVEMAN.md to {_display_path(caveman_dst)}")
-
-    CAVEMAN_LINE_PREFIX = "See @"
-    CAVEMAN_LINE_SUFFIX = "CAVEMAN.md"
-    levels = ["off", "lite", "full", "ultra"]
-
-    def _agent_claude_md(agent_name: str) -> Path:
-        agent_cfg = agents_cfg.get("agents", {}).get(agent_name, {})
-        project_dir = agent_cfg.get("project_dir", f"./agents/{agent_name}")
-        return overlay_path / project_dir / "CLAUDE.md"
-
-    def _detect_level(agent_name: str) -> str:
-        claude_md = _agent_claude_md(agent_name)
-        if not claude_md.exists():
-            return "off"
-        content = claude_md.read_text()
-        for line in content.splitlines():
-            if CAVEMAN_LINE_SUFFIX in line and CAVEMAN_LINE_PREFIX in line:
-                for level in ["lite", "full", "ultra"]:
-                    if level in line:
-                        return level
-                return "full"
-        return "off"
-
-    def _set_level(agent_name: str, level: str):
-        claude_md = _agent_claude_md(agent_name)
-        if not claude_md.exists():
-            warn(f"No CLAUDE.md for {agent_name}")
-            return
-
-        content = claude_md.read_text()
-        lines = content.splitlines()
-        section_header = "## Communication Style"
-        rel_caveman = os.path.relpath(caveman_dst, claude_md.parent)
-        caveman_ref = f"See @{rel_caveman} — active {level} mode."
-
-        # Find and remove existing caveman section
-        new_lines = []
-        skip_section = False
-        for i, line in enumerate(lines):
-            if line.strip() == section_header:
-                skip_section = True
-                continue
-            if skip_section:
-                if CAVEMAN_LINE_SUFFIX in line:
-                    skip_section = False
-                    continue
-                if line.strip() == "":
-                    continue
-                skip_section = False
-            new_lines.append(line)
-
-        if level != "off":
-            # Insert before last --- or at end
-            insert_idx = len(new_lines)
-            for i in range(len(new_lines) - 1, -1, -1):
-                if new_lines[i].strip() == "---":
-                    insert_idx = i
-                    break
-            enforce = "CRITICAL: Apply caveman rules to EVERY response from first message. No normal prose. No exceptions."
-            block = ["", section_header, "", enforce, "", caveman_ref, ""]
-            for j, line in enumerate(block):
-                new_lines.insert(insert_idx + j, line)
-
-        claude_md.write_text("\n".join(new_lines).strip() + "\n")
-
-    # Show current state
-    print()
-    info("Caveman mode — terse communication style per agent")
-    print()
-    for i, name in enumerate(agent_names, 1):
-        level = _detect_level(name)
-        label = f"{GREEN}{level}{RESET}" if level != "off" else f"{YELLOW}off{RESET}"
-        print(f"    {i}) {name}: {label}")
-    print()
-
-    target_input = ask("Agent number or name (or 'all')")
-    if not target_input:
-        return
-
-    targets = []
-    if target_input.lower() == "all":
-        targets = list(agent_names)
-    else:
-        try:
-            idx = int(target_input) - 1
-            if 0 <= idx < len(agent_names):
-                targets = [agent_names[idx]]
-        except ValueError:
-            if target_input in agents:
-                targets = [target_input]
-    if not targets:
-        err(f"Unknown agent: {target_input}")
-        return
-
-    new_level = ask_choice("Level", levels, default="full")
-    for t in targets:
-        _set_level(t, new_level)
-        ok(f"{t}: caveman → {new_level}")
-
 
 def view_agents():
     header("Agents Overview")
@@ -1037,17 +922,13 @@ def view_agents():
     print("  Options:")
     print("    1) Change agent model")
     print("    2) Change agent routing")
-    print("    3) Caveman mode (communication style)")
-    print("    4) Back")
+    print("    3) Back")
     print()
 
     while True:
         choice = ask("Choice", "4")
-        if choice in ("4", "back", "b", ""):
+        if choice in ("3", "back", "b", ""):
             break
-        elif choice == "3":
-            _manage_caveman(agents, agent_names, agents_cfg)
-            continue
 
         # Select target agent
         if choice in ("1", "2"):
