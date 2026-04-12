@@ -1037,7 +1037,7 @@ def step_systemd(state: dict):
 
             content = re.sub(r"/opt/tars(?=/|$)", str(PROJECT_ROOT), f.read_text())
 
-            # Inject TARS_OVERLAY into service files
+            # Inject TARS_OVERLAY into service files (after TARS_HOME line)
             if f.name.endswith(".service"):
                 lines = content.split("\n")
                 new_lines = []

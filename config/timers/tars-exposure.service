@@ -4,6 +4,7 @@ After=tars.service
 
 [Service]
 Type=oneshot
+Environment=TARS_HOME=/opt/tars
 User=tars
 Group=tars
 WorkingDirectory=/opt/tars

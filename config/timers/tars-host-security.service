@@ -1,12 +1,13 @@
 [Unit]
-Description=T.A.R.S Container Health Baseline Check
+Description=T.A.R.S Host Security Baseline Check
 After=tars.service
 
 [Service]
 Type=oneshot
+Environment=TARS_HOME=/opt/tars
 User=tars
 Group=tars
 WorkingDirectory=/opt/tars
-ExecStart=/opt/tars/scripts/monitor-container-health.sh
+ExecStart=/opt/tars/scripts/monitor-host-security.sh
 StandardOutput=append:/var/log/tars-security.log
 StandardError=append:/var/log/tars-security.log
