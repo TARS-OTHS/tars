@@ -1,6 +1,7 @@
 #!/bin/bash
 # health-audit.sh — Automated health + security baseline check for T.A.R.S
-# Checks: service status, memory usage, disk, zombies, temp cleanup, journal rotation, host security
+# Checks: service status, memory usage, disk, zombies, temp cleanup, journal rotation,
+#          host security, public port exposure
 # Alerts to Discord if issues found. Runs every 6 hours via timer.
 set -euo pipefail
 
@@ -77,6 +78,21 @@ fi
 if ! grep -q '169.254.169.254' /etc/iptables/rules.v4 2>/dev/null; then
     ISSUES="${ISSUES}\n- **host**: cloud metadata iptables rule MISSING"
 fi
+
+# 12. Public port exposure — flag unexpected listeners
+EXPECTED_PUBLIC="${TARS_EXPECTED_PORTS:-22 80 443}"
+PUBLIC_PORTS=$(ss -tlnp 2>/dev/null | grep -v '127.0.0.1\|172\.1[6-9]\.\|172\.2[0-9]\.\|172\.3[0-1]\.\|::1\|100\.6[4-9]\.\|100\.[7-9][0-9]\.\|100\.1[0-1][0-9]\.\|100\.12[0-7]\.\|fd7a:115c:a1e0' | awk 'NR>1 {print $4}' | grep -oE '[0-9]+$' | sort -nu)
+for port in $PUBLIC_PORTS; do
+    expected=false
+    for ep in $EXPECTED_PUBLIC; do
+        [ "$port" = "$ep" ] && expected=true && break
+    done
+    if [ "$expected" = "false" ]; then
+        proc=$(ss -tlnp "sport = :$port" 2>/dev/null | tail -1 | grep -oP 'users:\(\("\K[^"]+' || echo "unknown")
+        case "$proc" in tailscaled|tailscale*) continue ;; esac
+        ISSUES="${ISSUES}\n- **Port $port** ($proc) — not in expected list"
+    fi
+done
 
 # Report
 if [ -n "$ISSUES" ]; then
