@@ -1,7 +1,7 @@
 #!/bin/bash
-# health-audit.sh — Automated health check for T.A.R.S v2
-# Checks: service status, memory usage, disk, zombies, temp cleanup, journal rotation
-# Alerts to Discord if issues found. Runs every 6 hours via cron.
+# health-audit.sh — Automated health + security baseline check for T.A.R.S
+# Checks: service status, memory usage, disk, zombies, temp cleanup, journal rotation, host security
+# Alerts to Discord if issues found. Runs every 6 hours via timer.
 set -euo pipefail
 
 TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -71,6 +71,11 @@ fi
 load=$(cat /proc/loadavg | awk '{print $1}')
 if [ "$(echo "$load > 3.0" | bc 2>/dev/null || echo 0)" = "1" ]; then
     ISSUES="${ISSUES}\n- **Load**: $load (high for 4 CPU)"
+fi
+
+# 11. Host security baseline — cloud metadata must be blocked
+if ! grep -q '169.254.169.254' /etc/iptables/rules.v4 2>/dev/null; then
+    ISSUES="${ISSUES}\n- **host**: cloud metadata iptables rule MISSING"
 fi
 
 # Report
