@@ -793,13 +793,18 @@ The team roster is at `config/team.json`. User context is injected before each m
     _write_file(agent_dir / "CLAUDE.md", claude_md, state)
 
     # .mcp.json
+    mcp_env = {
+        "TARS_PROFILE": "${TARS_PROFILE:-}",
+        "TARS_PROJECT_DIR": str(agent_dir),
+        "TARS_OVERLAY": str(overlay),
+    }
     mcp_json = {
         "mcpServers": {
             "tars-tools": {
                 "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
                 "args": ["-m", "src.mcp_server"],
                 "cwd": str(PROJECT_ROOT),
-                "env": {"TARS_PROFILE": "${TARS_PROFILE:-}"},
+                "env": mcp_env,
             }
         }
     }
@@ -932,13 +937,18 @@ def step_ops_instance(state: dict):
         ok(f"Created {_display(claude_md_path)}")
 
     # .mcp.json
+    mcp_env = {
+        "TARS_PROFILE": "rescue",
+        "TARS_PROJECT_DIR": str(agent_dir),
+        "TARS_OVERLAY": str(overlay),
+    }
     mcp_json = {
         "mcpServers": {
             "tars-tools": {
                 "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
                 "args": ["-m", "src.mcp_server"],
                 "cwd": str(PROJECT_ROOT),
-                "env": {"TARS_PROFILE": "${TARS_PROFILE:-}"},
+                "env": mcp_env,
             }
         }
     }
@@ -1304,13 +1314,18 @@ Use your MCP tools for memory — do NOT use curl or HTTP calls.
         info(f"CLAUDE.md already exists: {_display(claude_md_path, overlay)} (skipped)")
 
     # .mcp.json
+    mcp_env = {
+        "TARS_PROFILE": "${TARS_PROFILE:-}",
+        "TARS_PROJECT_DIR": str(agent_dir),
+        "TARS_OVERLAY": str(overlay),
+    }
     mcp_json = {
         "mcpServers": {
             "tars-tools": {
                 "command": str(PROJECT_ROOT / ".venv" / "bin" / "python3"),
                 "args": ["-m", "src.mcp_server"],
                 "cwd": str(PROJECT_ROOT),
-                "env": {"TARS_PROFILE": "${TARS_PROFILE:-}"},
+                "env": mcp_env,
             }
         }
     }
