@@ -79,8 +79,16 @@ uv run python scripts/test-tools.py --category trello
 
 All monitoring scripts use `scripts/lib-alert.sh` for Discord alerts via the Fernet vault. Install as systemd timers via `scripts/install-timers.sh`.
 
-### `scripts/health-audit.sh` — System Health Check
-Service status, disk/RAM/swap usage, zombie processes, temp file cleanup. Runs every 6 hours.
+### `scripts/health-audit.sh` — Full System Audit
+Comprehensive health check: services, timers, resources, network, security, memory system, vault, MCP servers, tools/skills, databases, application health, logs, git state. Config-driven via `health-config.yaml`.
+```bash
+# Timer mode (default) — alerts on issues, heartbeat on success
+scripts/health-audit.sh
+
+# Report mode — full PASS/WARN/FAIL output (used by /system-audit slash command)
+scripts/health-audit.sh --report
+```
+Runs every 6 hours via timer. Also available on-demand via `/system-audit` Discord slash command (runs directly, no LLM round-trip).
 
 ### `scripts/monitor-container-health.sh` — Container Security Monitor
 Checks Docker containers for security baseline drift (capabilities, non-root, no-new-privileges). Runs every 6 hours.

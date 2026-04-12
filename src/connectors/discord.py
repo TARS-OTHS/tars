@@ -906,6 +906,51 @@ class DiscordBot:
 
     # --- Skill commands ---
 
+    @staticmethod
+    async def _run_direct_command(interaction: discord.Interaction, command: str) -> None:
+        """Run a skill command directly and post output to Discord, bypassing the LLM.
+
+        The command field comes from skill YAML on disk (not user input).
+        Uses subprocess_exec with shlex.split to avoid shell injection.
+        """
+        import asyncio
+        import os
+        import shlex
+        env = {**os.environ, "TERM": "dumb"}
+        try:
+            tars_home = os.environ.get("TARS_HOME", "/opt/tars")
+            parts = shlex.split(command)
+            if not parts[0].startswith("/"):
+                parts[0] = os.path.join(tars_home, parts[0])
+            if not os.path.isfile(parts[0]):
+                output = f"Command not found: {parts[0]}"
+                await interaction.followup.send(f"```\n{output}\n```")
+                return
+            proc = await asyncio.create_subprocess_exec(
+                *parts,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+            output = stdout.decode().strip()
+            if not output and stderr:
+                output = f"stderr: {stderr.decode().strip()}"
+            if not output:
+                output = "(no output)"
+        except asyncio.TimeoutError:
+            output = "Command timed out (60s)"
+        except Exception as e:
+            output = f"Error: {e}"
+
+        if len(output) > 1900:
+            import io
+            file = discord.File(io.BytesIO(output.encode()), filename="audit-report.txt")
+            summary = output.split("\n")[1] if "\n" in output else output[:100]
+            await interaction.followup.send(summary, file=file)
+        else:
+            await interaction.followup.send(f"```\n{output}\n```")
+
     def _register_skill_commands(self) -> None:
         """Auto-register each skill as a slash command."""
         skills = self.connector._skills
@@ -963,9 +1008,12 @@ class DiscordBot:
         safe_params = [p for p in skill.parameters if _SAFE_IDENT.match(p.name)]
         kwarg_names = [p.name for p in safe_params]
 
-        def _make_skill_callback(_connector, _skill_name, _kwarg_names, _account_name):
+        def _make_skill_callback(_connector, _skill_name, _kwarg_names, _account_name, _command=None):
             async def _skill_cmd(interaction: discord.Interaction, **kwargs):
                 await interaction.response.defer()
+                if _command:
+                    await DiscordBot._run_direct_command(interaction, _command)
+                    return
                 await _connector.emit(IncomingMessage(
                     connector="discord",
                     channel_id=str(interaction.channel_id),
@@ -995,7 +1043,7 @@ class DiscordBot:
             _skill_cmd.__signature__ = inspect.Signature(params)
             return _skill_cmd
 
-        callback = _make_skill_callback(connector, skill_name, kwarg_names, self.account_name)
+        callback = _make_skill_callback(connector, skill_name, kwarg_names, self.account_name, skill.command)
 
         # Add choice decorators
         if any(p.choices for p in skill.parameters):
