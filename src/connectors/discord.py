@@ -360,14 +360,12 @@ class DiscordBot:
             except Exception as e:
                 logger.error(f"[{self.account_name}] Failed to sync commands to guild {guild.id}: {e}")
 
-        # Clear global commands to prevent duplicates — guild copies are sufficient
-        # for server usage. Re-enable global sync if DM support is needed.
+        # Sync global commands for DM support (takes up to 1 hour to propagate)
         try:
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync()
-            logger.info(f"[{self.account_name}] Cleared global commands (guild-only mode)")
+            synced = await self.tree.sync()
+            logger.info(f"[{self.account_name}] Synced {len(synced)} global commands (DMs enabled)")
         except Exception as e:
-            logger.error(f"[{self.account_name}] Failed to clear global commands: {e}")
+            logger.error(f"[{self.account_name}] Failed to sync global commands: {e}")
 
     async def on_message(self, message: discord.Message) -> None:
         """Handle incoming Discord messages."""
@@ -862,9 +860,8 @@ class DiscordBot:
                         lines.append(f"✓ {guild.name}: {len(synced)} commands")
                     except Exception as ge:
                         lines.append(f"✗ {guild.name}: {ge}")
-                self.tree.clear_commands(guild=None)
-                await self.tree.sync()
-                lines.append("✓ Global commands cleared (guild-only mode)")
+                synced_global = await self.tree.sync()
+                lines.append(f"✓ Global: {len(synced_global)} commands (DMs enabled)")
                 await interaction.followup.send(
                     "**Sync results:**\n" + "\n".join(lines), ephemeral=True
                 )
