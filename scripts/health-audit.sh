@@ -110,5 +110,6 @@ if [ -n "$ISSUES" ]; then
     send_alert "HEALTH | Issues detected:$(echo -e "$ISSUES")"
     log "Issues found:$(echo -e "$ISSUES")"
 else
+    send_alert "HEARTBEAT | All checks passed (disk=${disk_pct}%, ram=${mem_pct}%, swap=${swap_pct}%, load=${load})"
     log "All checks passed (disk=${disk_pct}%, ram=${mem_pct}%, swap=${swap_pct}%, load=${load})"
 fi
