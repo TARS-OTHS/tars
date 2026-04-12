@@ -88,10 +88,10 @@ scripts/health-audit.sh
 # Report mode — full PASS/WARN/FAIL output (used by /system-audit slash command)
 scripts/health-audit.sh --report
 ```
-Runs every 6 hours via timer. Also available on-demand via `/system-audit` Discord slash command (runs directly, no LLM round-trip).
+Runs every 12 hours via timer. Also available on-demand via `/system-audit` Discord slash command (runs directly, no LLM round-trip).
 
 ### `scripts/monitor-container-health.sh` — Container Security Monitor
-Checks Docker containers for security baseline drift (capabilities, non-root, no-new-privileges). Runs every 6 hours.
+Checks Docker containers for security baseline drift (capabilities, non-root, no-new-privileges). Runs every 6 hours. Only present on deployments with Docker containers.
 
 ### `scripts/monitor-integrity.sh` — File Integrity Monitor
 SHA256 checksums of critical files compared against baseline. Alerts on changes. Runs every 12 hours.
@@ -101,7 +101,7 @@ scripts/monitor-integrity.sh --update-baseline
 ```
 
 ### `scripts/monitor-exposure.sh` — Public Port Monitor
-Scans for unexpected public-facing ports. Runs daily.
+Scans for unexpected public-facing ports. Runs daily (not present in all deployments).
 
 ### `scripts/regen-memory-context.sh` — Memory Context Generator
 Regenerates memory stats and service health snapshot. Runs every 30 minutes.
@@ -116,11 +116,20 @@ source scripts/lib-alert.sh
 send_alert "Something happened"
 ```
 
+### `scripts/lib-alert.sh` — `send_report()` Function
+The `send_report()` function in `lib-alert.sh` supports file attachments for sending formatted reports to Discord:
+```bash
+source scripts/lib-alert.sh
+send_report "Report title" "$report_content" "/path/to/attachment.txt"
+```
+Arguments: title (string), content (string), optional file path (attached to Discord message).
+
 ### `scripts/install-timers.sh` — Timer Installer (legacy)
 Installs all systemd timer+service files from `config/timers/`.
 ```bash
 sudo scripts/install-timers.sh
 ```
+The script injects `TARS_OVERLAY` into rendered service files if the env var is set. Re-run after Core updates or overlay changes to regenerate with current paths.
 
 ### `scripts/install-systemd.sh` — Systemd Unit Installer
 Symlinks generated unit files (timers + service) into `/etc/systemd/system/`, runs daemon-reload, enables timers. Called by `setup.py` automatically.
