@@ -68,6 +68,7 @@ fi
 
 DEPLOYMENT=$(_yaml_val "deployment" "unknown")
 TARS_DIR=$(_yaml_val "paths.tars_home" "$TARS_HOME")
+OTHS_DIR=$(_yaml_val "paths.oths" "${TARS_OTHS:-}")
 OVERLAY=$(_yaml_val "paths.overlay" "${TARS_OVERLAY:-}")
 VAULT_PATH=$(_yaml_val "paths.vault" "")
 DB_PATH=$(_yaml_val "paths.memory_db" "$TARS_DIR/data/memory.db")
@@ -400,18 +401,15 @@ import ast, os, yaml
 from pathlib import Path
 
 tars = '$TARS_DIR'
-oths_env = os.environ.get('TARS_OTHS', '')
+oths_dir = '$OTHS_DIR'
 overlay = '$OVERLAY'
 
 tool_dirs = [os.path.join(tars, 'src', 'tools')]
-if oths_env:
-    for p in oths_env.split(':'):
-        p = p.strip()
-        if p and Path(p).is_dir():
-            for sub in Path(p).iterdir():
-                td = sub / 'tools'
-                if td.is_dir():
-                    tool_dirs.append(str(td))
+if oths_dir and Path(oths_dir).is_dir():
+    for sub in Path(oths_dir).iterdir():
+        td = sub / 'tools'
+        if td.is_dir():
+            tool_dirs.append(str(td))
 
 total = 0; errors = []
 for td in tool_dirs:
@@ -427,14 +425,11 @@ for td in tool_dirs:
 skill_dirs = [os.path.join(tars, 'skills')]
 if overlay and Path(os.path.join(overlay, 'skills')).is_dir():
     skill_dirs.append(os.path.join(overlay, 'skills'))
-if oths_env:
-    for p in oths_env.split(':'):
-        p = p.strip()
-        if p and Path(p).is_dir():
-            for sub in Path(p).iterdir():
-                sd = sub / 'skills'
-                if sd.is_dir():
-                    skill_dirs.append(str(sd))
+if oths_dir and Path(oths_dir).is_dir():
+    for sub in Path(oths_dir).iterdir():
+        sd = sub / 'skills'
+        if sd.is_dir():
+            skill_dirs.append(str(sd))
 
 total_skills = 0; skill_errors = []
 for sd in skill_dirs:
@@ -563,7 +558,6 @@ done < <(_yaml_list "services") || true
 # ── 13. Git State ───────────────────────────────────────────────────────
 REPORT="${REPORT}\n\n## Git State"
 
-OTHS_DIR=$(_yaml_val "paths.oths" "")
 for label_path in "Core|$TARS_DIR" "OTHS|$OTHS_DIR" "Overlay|$OVERLAY"; do
     label="${label_path%%|*}"
     path="${label_path#*|}"
