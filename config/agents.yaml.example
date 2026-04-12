@@ -24,9 +24,13 @@ agents:
     #   level: lite
     routing:
       discord:
-        account: main
-        channels: []          # empty = all channels
-        mentions: true        # only respond when @mentioned
+        account: main         # bot account (namespace — each bot routes independently)
+        channels: []          # empty = all channels (wildcard)
+        # categories: []      # Discord category IDs — all channels in category match
+        # guilds: []          # filter: restrict to specific servers (applies on top of scope)
+        mentions: true        # filter: only respond when @mentioned
+        # Scope priority: specific channel > category > wildcard
+        # Filters (account, guilds, mentions) apply independently of scope
 
   # Example: assistant-tier agent with a restricted tool whitelist
   # assistant:
@@ -68,3 +72,5 @@ agents:
   #     discord:
   #       account: ops
   #       channels: ["OPS_CHANNEL_ID"]
+  #       guilds: ["GUILD_ID"]
+  #       mentions: true

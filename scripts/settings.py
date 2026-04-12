@@ -142,6 +142,60 @@ def ask_int(prompt: str, default: int) -> int:
             print("  Please enter a number.")
 
 
+# --- Routing Helper ---
+
+def _ask_routing(bot_account: str, default_mentions: bool = True) -> dict:
+    """Prompt for agent routing config and return the routing dict."""
+    mentions = ask_yn("Only respond when @mentioned?", default=default_mentions)
+
+    print()
+    info("How should this agent listen for messages?")
+    print(f"    1) All channels {DIM}(wildcard — responds everywhere){RESET}")
+    print(f"    2) Specific channels {DIM}(by channel ID){RESET}")
+    print(f"    3) By category {DIM}(all channels in a Discord category){RESET}")
+    print(f"    4) Specific channels + category")
+    scope = ask_choice("Scope", ["1", "2", "3", "4"], default="1")
+
+    channels = []
+    categories = []
+    if scope in ("2", "4"):
+        info("Enter channel IDs (one per line, empty to stop):")
+        while True:
+            ch = ask("Channel ID (empty to stop)")
+            if not ch:
+                break
+            channels.append(ch)
+    if scope in ("3", "4"):
+        info("Enter category IDs (one per line, empty to stop):")
+        while True:
+            cat = ask("Category ID (empty to stop)")
+            if not cat:
+                break
+            categories.append(cat)
+
+    guilds = []
+    if ask_yn("Restrict to specific server/guild?", default=False):
+        while True:
+            g = ask("Guild ID (empty to stop)")
+            if not g:
+                break
+            guilds.append(g)
+
+    routing = {
+        "discord": {
+            "account": bot_account,
+            "channels": channels,
+            "mentions": mentions,
+        }
+    }
+    if categories:
+        routing["discord"]["categories"] = categories
+    if guilds:
+        routing["discord"]["guilds"] = guilds
+
+    return routing
+
+
 # --- Config I/O ---
 
 def load_yaml(path: Path) -> dict:
@@ -690,16 +744,8 @@ def create_agent():
     else:
         bot_account = ask("Bot account", "main")
 
-    mentions = ask_yn("Only respond when @mentioned?", default=True)
-
-    # Channel filtering
-    channels = []
-    if ask_yn("Restrict to specific channel IDs?", default=False):
-        while True:
-            ch = ask("Channel ID (empty to stop)")
-            if not ch:
-                break
-            channels.append(ch)
+    # Routing
+    routing = _ask_routing(bot_account)
 
     # Personality
     personality = ask("Personality (e.g. 'concise and direct')", "concise and direct")
@@ -730,13 +776,7 @@ def create_agent():
         agent_entry["disallow_builtins"] = disallow
     if comp_override:
         agent_entry["compression"] = comp_override
-    agent_entry["routing"] = {
-        "discord": {
-            "account": bot_account,
-            "channels": channels,
-            "mentions": mentions,
-        }
-    }
+    agent_entry["routing"] = routing
 
     # Write agents.yaml
     agents_cfg.setdefault("agents", {})[agent_name] = agent_entry
@@ -842,11 +882,20 @@ def view_agents():
         bot = routing.get("account", "?")
         mentions = "mentions" if routing.get("mentions") else "all messages"
         channels = routing.get("channels", [])
-        ch_str = f", channels: {','.join(channels)}" if channels else ""
+        categories = routing.get("categories", [])
+        guilds = routing.get("guilds", [])
+        scope_parts = []
+        if channels:
+            scope_parts.append(f"channels: {','.join(channels)}")
+        if categories:
+            scope_parts.append(f"categories: {','.join(categories)}")
+        if guilds:
+            scope_parts.append(f"guilds: {','.join(guilds)}")
+        scope_str = f", {', '.join(scope_parts)}" if scope_parts else ""
 
         print(f"  {BOLD}{name}{RESET}{priv}")
         print(f"    {agent.get('display_name', name)} — {agent.get('description', '')}")
-        print(f"    model: {model}, bot: {bot}, {mentions}{ch_str}")
+        print(f"    model: {model}, bot: {bot}, {mentions}{scope_str}")
 
         # Per-agent overrides
         comp = agent.get("compression")
@@ -857,17 +906,20 @@ def view_agents():
             print(f"    disallow_builtins: {', '.join(disallow)}")
         print()
 
-    # Agent model editing
+    # Agent editing
     print("  Options:")
     print("    1) Change agent model")
-    print("    2) Back")
+    print("    2) Change agent routing")
+    print("    3) Back")
     print()
 
     while True:
-        choice = ask("Choice", "2")
-        if choice in ("2", "back", "b", ""):
+        choice = ask("Choice", "3")
+        if choice in ("3", "back", "b", ""):
             break
-        elif choice == "1":
+
+        # Select target agent
+        if choice in ("1", "2"):
             if len(agent_names) == 1:
                 target = agent_names[0]
                 info(f"Only one agent: {target}")
@@ -888,6 +940,7 @@ def view_agents():
                     err(f"Unknown agent: {target_input}")
                     continue
 
+        if choice == "1":
             current_model = agents[target].get("llm", {}).get("model", "sonnet")
             new_model = ask_choice("Model", ["sonnet", "opus", "haiku"], default=current_model)
             if new_model != current_model:
@@ -896,6 +949,13 @@ def view_agents():
                 ok(f"{target}: model → {new_model}")
             else:
                 info("No change.")
+        elif choice == "2":
+            current_bot = agents[target].get("routing", {}).get("discord", {}).get("account", "main")
+            info(f"Reconfiguring routing for {target} (bot: {current_bot})")
+            new_routing = _ask_routing(current_bot)
+            agents[target]["routing"] = new_routing
+            save_agents(agents_cfg)
+            ok(f"{target}: routing updated")
 
 
 def create_ops_instance():
@@ -966,15 +1026,9 @@ def create_ops_instance():
             info(f"Available accounts: {', '.join(discord_accounts)}")
         bot_name = ask("Existing bot account to use", discord_accounts[0] if discord_accounts else "main")
 
-    # Channel restriction
+    # Routing
     print()
-    channels = []
-    if ask_yn("Restrict to specific channel IDs?", default=False):
-        while True:
-            ch = ask("Channel ID (empty to stop)")
-            if not ch:
-                break
-            channels.append(ch)
+    routing = _ask_routing(bot_name, default_mentions=True)
 
     # Write agents.rescue.yaml
     rescue_agents = {
@@ -987,15 +1041,7 @@ def create_ops_instance():
                 "llm": {"provider": "claude_code", "model": model},
                 "tools": "all",
                 "skills": "all",
-                "routing": {
-                    "discord": {
-                        "account": bot_name,
-                        "channels": channels,
-                        "categories": [],
-                        "guilds": [],
-                        "mentions": True,
-                    }
-                },
+                "routing": routing,
             }
         }
     }
