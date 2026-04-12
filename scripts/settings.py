@@ -1438,26 +1438,23 @@ def manage_timers():
 # Main menu
 # ==========================================================================
 
+# (key, label, handler, needs_cfg)
 MENU_ITEMS = [
-    ("1", "LLM Defaults", edit_llm),
-    ("2", "Connectors", edit_connectors),
-    ("3", "Session", edit_session),
-    ("4", "Memory", edit_memory),
-    ("5", "Security / HITL", edit_hitl),
-    ("6", "Rate Limits", edit_rate_limits),
-    ("7", "Compression", edit_compression),
-    ("8", "Admin Users", edit_admin_users),
-    ("9", "Identity (name, log level)", edit_tars_identity),
-]
-
-# These don't take cfg as argument — handled separately
-SPECIAL_ITEMS = [
-    ("a", "Agents (view / change model)", view_agents),
-    ("c", "Create Agent", create_agent),
-    ("t", "Timers (systemd)", manage_timers),
-    ("p", "Create Privileged Ops Instance", create_ops_instance),
-    ("v", "Vault Secrets", manage_vault),
-    ("q", "Quit", None),
+    ("1", "LLM Defaults", edit_llm, True),
+    ("2", "Connectors", edit_connectors, True),
+    ("3", "Session", edit_session, True),
+    ("4", "Memory", edit_memory, True),
+    ("5", "Security / HITL", edit_hitl, True),
+    ("6", "Rate Limits", edit_rate_limits, True),
+    ("7", "Compression", edit_compression, True),
+    ("8", "Admin Users", edit_admin_users, True),
+    ("9", "Identity (name, log level)", edit_tars_identity, True),
+    ("10", "Agents", view_agents, False),
+    ("11", "Create Agent", create_agent, False),
+    ("12", "Timers (systemd)", manage_timers, False),
+    ("13", "Ops Instance", create_ops_instance, False),
+    ("14", "Vault Secrets", manage_vault, False),
+    ("q", "Quit", None, False),
 ]
 
 
@@ -1474,11 +1471,8 @@ def main():
     while True:
         print(f"\n  {BOLD}Settings{RESET}")
         print()
-        for key, label, _ in MENU_ITEMS:
-            print(f"    {BOLD}{key}){RESET} {label}")
-        print()
-        for key, label, _ in SPECIAL_ITEMS:
-            print(f"    {BOLD}{key}){RESET} {label}")
+        for key, label, _, _ in MENU_ITEMS:
+            print(f"    {BOLD}{key:>2}){RESET} {label}")
         print()
 
         choice = ask("Choice", "q").lower()
@@ -1488,21 +1482,15 @@ def main():
             ok("Done. Restart T.A.R.S to apply changes.")
             break
 
-        # Config-based sections (reload each time for freshness)
-        for key, _, handler in MENU_ITEMS:
-            if choice == key:
-                cfg = load_config()
-                handler(cfg)
+        for key, _, handler, needs_cfg in MENU_ITEMS:
+            if choice == key and handler:
+                if needs_cfg:
+                    handler(load_config())
+                else:
+                    handler()
                 break
         else:
-            # Special items
-            for key, _, handler in SPECIAL_ITEMS:
-                if choice == key and handler:
-                    handler()
-                    break
-            else:
-                if choice not in ("q", "quit", "exit"):
-                    err(f"Unknown option: {choice}")
+            err(f"Unknown option: {choice}")
 
 
 if __name__ == "__main__":

@@ -47,11 +47,11 @@ uv run python scripts/settings.py
 7. **Compression** — enable/disable, compression level
 8. **Admin users** — Discord user IDs with admin access
 9. **Identity** — system name, log level, data directory
-- **a) Agents** — list all agents, change model, routing, or caveman mode per agent
-- **c) Create agent** — new agent with tier selection, bot assignment, channel filtering
-- **t) Timers** — list systemd timers with status/schedule, enable/disable, edit schedules
-- **p) Ops instance** — create privileged dual-instance setup
-- **v) Vault secrets** — add, update, delete, list vault entries
+10. **Agents** — list all agents, change model, routing, or caveman mode per agent
+11. **Create agent** — new agent with tier selection, bot assignment, channel filtering
+12. **Timers** — list systemd timers with status/schedule, enable/disable, edit schedules
+13. **Ops instance** — create privileged dual-instance setup
+14. **Vault secrets** — add, update, delete, list vault entries
 
 ### `vault-manage.py` — Interactive Vault Manager
 Manage encrypted secrets (add, update, delete, list, check).
