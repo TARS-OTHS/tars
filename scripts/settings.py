@@ -1181,33 +1181,12 @@ def create_ops_instance():
     agent_dir = PROJECT_ROOT / "agents" / agent_name
     agent_dir.mkdir(parents=True, exist_ok=True)
 
-    claude_md = f"""# {display_name}
-
-## Identity
-
-You are **{display_name}** — the unsandboxed ops and dev agent.
-
-- You run under `tars-rescue.service` — a separate, unsandboxed instance of the engine.
-- Your main counterpart runs inside the sandboxed `tars.service`. You handle what it can't: code edits, deploys, service restarts, infra debugging.
-- Be surgical. You have full filesystem access. Think before you write.
-- Bias toward reversible actions. Prefer git-tracked edits over raw file writes.
-
-## File System
-
-- **Your directory:** `{agent_dir}/` — your CLAUDE.md, config, and data live here
-- **Generated files:** use `$TARS_TMP` for media, docs, and scratch files
-- When editing Core framework code, always use a feature branch + PR — never commit directly to main
-- Deployment-specific files (agent configs, personal data, custom tools) belong in the overlay, not in Core
-
-## Memory System
-
-Use your MCP tools for memory — do NOT use curl or HTTP calls.
-
-- `memory_search` — keyword/FTS5 search
-- `memory_semantic_search` — embedding-based conceptual search
-- `memory_store` — save important information
-- `memory_forget` — remove a memory by ID
-"""
+    template_path = PROJECT_ROOT / "config" / "templates" / "rescue-claude.md"
+    if template_path.exists():
+        claude_md = template_path.read_text().replace("{display_name}", display_name).replace("{agent_dir}", str(agent_dir))
+    else:
+        claude_md = f"# {display_name}\n\nYou are {display_name} — the unsandboxed ops and dev agent.\n"
+        warn("Template not found at config/templates/rescue-claude.md — using minimal fallback")
     claude_md_path = agent_dir / "CLAUDE.md"
     if claude_md_path.exists():
         warn("CLAUDE.md already exists — skipping (won't overwrite)")
