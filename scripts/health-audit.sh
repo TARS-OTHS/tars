@@ -190,9 +190,15 @@ fi
 # ── 5. Security ─────────────────────────────────────────────────────────
 REPORT="${REPORT}\n\n## Security"
 
-bad_owner=$(find "$TARS_DIR" -not -user tars -not -path '*/.git/*' 2>/dev/null | head -5)
+bad_owner=$(find "$TARS_DIR" -not -user tars -not -path '*/.git/*' 2>/dev/null | head -20)
 if [ -n "$bad_owner" ]; then
-    _fail "Files not owned by tars: $bad_owner"
+    chown -R tars:tars "$TARS_DIR" 2>/dev/null || true
+    recheck=$(find "$TARS_DIR" -not -user tars -not -path '*/.git/*' 2>/dev/null | head -5)
+    if [ -n "$recheck" ]; then
+        _fail "Files not owned by tars (auto-fix failed): $recheck"
+    else
+        _warn "Auto-fixed file ownership in $TARS_DIR"
+    fi
 else
     _ok "All $TARS_DIR files owned by tars:tars"
 fi
