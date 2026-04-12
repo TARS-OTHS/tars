@@ -1026,7 +1026,6 @@ def create_ops_instance():
             info(f"Available accounts: {', '.join(discord_accounts)}")
         bot_name = ask("Existing bot account to use", discord_accounts[0] if discord_accounts else "main")
 
-    # Channel restriction
     # Routing
     print()
     routing = _ask_routing(bot_name, default_mentions=True)
