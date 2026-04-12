@@ -252,6 +252,26 @@ agents:
         channels: []              # All channels (wildcard)
 ```
 
+### Communication Style (Caveman Mode)
+
+Agents can use a terse communication style ("caveman mode") with four levels:
+
+| Level | Behavior |
+|-------|----------|
+| off | Normal prose |
+| lite | Drop pleasantries and hedging. Sentences intact. |
+| full | Drop articles and filler. Fragments OK. |
+| ultra | Maximum compression. Telegraphic. |
+
+The style definition lives in `config/CAVEMAN.md` (shipped with Core, copied to overlay during setup). Each agent's CLAUDE.md references it with a level:
+
+```markdown
+## Communication Style
+See @../../config/CAVEMAN.md — active full mode.
+```
+
+Manage via `settings.py` → Agents → Caveman mode, or edit CLAUDE.md directly. Remove the reference to disable.
+
 ### Routing
 
 Routing determines which agent handles an incoming message. Each connector has its own routing namespace (`routing.discord`, `routing.telegram`, etc.) with connector-specific keys.

@@ -243,6 +243,27 @@ def step_overlay(state: dict):
             "config/secrets.salt\n"
         )
 
+    # Copy CAVEMAN.md communication style template
+    caveman_src = PROJECT_ROOT / "config" / "CAVEMAN.md"
+    caveman_dst = overlay / "config" / "CAVEMAN.md"
+    if caveman_src.exists() and not caveman_dst.exists():
+        caveman_dst.write_text(caveman_src.read_text())
+        ok("Copied CAVEMAN.md communication style template")
+
+    # Add TARS env vars to shell profile so interactive tools (settings.py etc.) work
+    bashrc = Path.home() / ".bashrc"
+    if bashrc.exists():
+        content = bashrc.read_text()
+        if "TARS_OVERLAY" not in content:
+            env_block = f"\n# T.A.R.S environment\nexport TARS_OVERLAY={overlay}\n"
+            if state.get("tars_oths"):
+                env_block += f"export TARS_OTHS={state['tars_oths']}\n"
+            with open(bashrc, "a") as f:
+                f.write(env_block)
+            ok("Added T.A.R.S env vars to ~/.bashrc")
+        else:
+            info("TARS_OVERLAY already in ~/.bashrc")
+
     ok(f"Overlay: {overlay}")
     state["overlay"] = overlay
 

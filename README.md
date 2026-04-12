@@ -244,6 +244,17 @@ agents:
 
 Agents with specific channel/category routing take priority over wildcard agents.
 
+### COMMUNICATION STYLE (CAVEMAN MODE)
+
+Each agent's communication verbosity is controlled via `config/CAVEMAN.md` — a shared style template with four levels: `off`, `lite`, `full`, `ultra`. Set per agent in its overlay `CLAUDE.md` with a reference line:
+
+```markdown
+## Communication Style
+See @../../config/CAVEMAN.md — active full mode.
+```
+
+Manage via `scripts/settings.py` → Agents → select agent → Caveman mode. See [ARCHITECTURE.md](ARCHITECTURE.md) for level details.
+
 ## ACCESS CONTROL
 
 ```
