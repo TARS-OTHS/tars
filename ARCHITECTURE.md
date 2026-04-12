@@ -401,11 +401,17 @@ Each agent gets an MCP server (`src/mcp_server.py`) spawned as a subprocess by C
       "command": "/opt/tars/.venv/bin/python3",
       "args": ["-m", "src.mcp_server"],
       "cwd": "/opt/tars",
-      "env": { "TARS_PROFILE": "${TARS_PROFILE:-}" }
+      "env": {
+        "TARS_PROFILE": "${TARS_PROFILE:-}",
+        "TARS_PROJECT_DIR": "/opt/tars-overlay/agents/main",
+        "TARS_OVERLAY": "/opt/tars-overlay"
+      }
     }
   }
 }
 ```
+
+**Required env vars:** `TARS_PROJECT_DIR` is used by the MCP server to derive the agent ID (tools like `caveman` need this to find the correct CLAUDE.md). `TARS_OVERLAY` is needed for any tool that reads overlay config (health audit, caveman, etc.). `setup.py` generates these automatically.
 
 **External MCP servers** — additional MCP servers (third-party tools, other systems) are configured in `config/mcp.yaml`:
 
@@ -783,7 +789,7 @@ All scheduled tasks use systemd timers (`Persistent=true` — catches up missed 
 |-------|----------|--------|---------|--------|
 | tars-memory-context | Every 30 min | regen-memory-context.sh | Regenerates `MEMORY_CONTEXT.md` with memory stats and service health snapshot for agent context injection | No |
 | tars-memory-decay | Daily 03:00 | memory-decay.sh | Applies confidence decay (0.0108/day), archives memories below threshold, purges archives older than 90 days | On purge |
-| tars-health-audit | Every 6h | health-audit.sh | Full system audit: services, timers, resources, security, memory, vault, MCP, tools, databases, git state. Also available on-demand via `/system-audit` slash command (runs directly, no LLM) | Heartbeat on success, alert on issues |
+| tars-health-audit | Every 12h | health-audit.sh | Full system audit: services, timers, resources, security, memory, vault, MCP, tools, databases, git state. Also available on-demand via `/system-audit` slash command (runs directly, no LLM) | Heartbeat on success, alert on issues |
 | tars-integrity | Every 12h | monitor-integrity.sh | SHA256 checksums of critical files vs baseline — detects unauthorized changes | On mismatch |
 | tars-exposure | Daily 02:00 | monitor-exposure.sh | Scans for unexpected public-facing ports | On unexpected port |
 | tars-container-health | Every 6h | monitor-container-health.sh | Checks Docker containers for security drift (capabilities, non-root, no-new-privileges) | On drift |

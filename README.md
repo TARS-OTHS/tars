@@ -139,7 +139,15 @@ tools:
   - memory_search
 ```
 
-Skills become Discord slash commands automatically. See [skills/README.md](skills/README.md) for the full format reference.
+Skills can also run shell commands directly without an LLM session:
+
+```yaml
+name: system_audit
+description: Run a full system health audit
+command: scripts/health-audit.sh --report
+```
+
+See [skills/README.md](skills/README.md) for the full format reference including direct command execution.
 
 ## INTEL DATABASE (CODEX)
 
