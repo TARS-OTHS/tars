@@ -1159,6 +1159,28 @@ def step_browser(state: dict):
         info("Run manually later: uv run playwright install chromium")
 
 
+def step_final_sync(state: dict):
+    """Re-run sync now that TARS_OTHS and TARS_OVERLAY are configured."""
+    tars_oths = state.get("tars_oths", "")
+    overlay = state.get("overlay")
+    if not overlay and not tars_oths:
+        return  # nothing new to sync
+
+    header("Final Dependency Sync")
+    info("Re-syncing with module and overlay configuration...")
+
+    env = {**os.environ}
+    if tars_oths:
+        env["TARS_OTHS"] = tars_oths
+    if overlay:
+        env["TARS_OVERLAY"] = str(overlay)
+
+    sync_script = PROJECT_ROOT / "scripts" / "sync.sh"
+    if sync_script.exists():
+        subprocess.run([str(sync_script)], cwd=str(PROJECT_ROOT), env=env, check=False)
+    ok("Dependencies synced with module configuration")
+
+
 def step_summary(state: dict):
     header("Setup Complete")
 
@@ -1540,6 +1562,7 @@ def main():
         step_extras,
         step_systemd,
         step_browser,
+        step_final_sync,
         step_summary,
     ]
 
