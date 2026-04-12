@@ -886,8 +886,13 @@ def _manage_caveman(agents: dict, agent_names: list, agents_cfg: dict):
     CAVEMAN_LINE_SUFFIX = "CAVEMAN.md"
     levels = ["off", "lite", "full", "ultra"]
 
+    def _agent_claude_md(agent_name: str) -> Path:
+        agent_cfg = agents_cfg.get("agents", {}).get(agent_name, {})
+        project_dir = agent_cfg.get("project_dir", f"./agents/{agent_name}")
+        return overlay_path / project_dir / "CLAUDE.md"
+
     def _detect_level(agent_name: str) -> str:
-        claude_md = overlay_path / "agents" / agent_name / "CLAUDE.md"
+        claude_md = _agent_claude_md(agent_name)
         if not claude_md.exists():
             return "off"
         content = claude_md.read_text()
@@ -900,7 +905,7 @@ def _manage_caveman(agents: dict, agent_names: list, agents_cfg: dict):
         return "off"
 
     def _set_level(agent_name: str, level: str):
-        claude_md = overlay_path / "agents" / agent_name / "CLAUDE.md"
+        claude_md = _agent_claude_md(agent_name)
         if not claude_md.exists():
             warn(f"No CLAUDE.md for {agent_name}")
             return
@@ -908,7 +913,8 @@ def _manage_caveman(agents: dict, agent_names: list, agents_cfg: dict):
         content = claude_md.read_text()
         lines = content.splitlines()
         section_header = "## Communication Style"
-        caveman_ref = f"See @../../config/CAVEMAN.md — active {level} mode."
+        rel_caveman = os.path.relpath(caveman_dst, claude_md.parent)
+        caveman_ref = f"See @{rel_caveman} — active {level} mode."
 
         # Find and remove existing caveman section
         new_lines = []
