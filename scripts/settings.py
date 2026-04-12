@@ -950,7 +950,8 @@ def _manage_caveman(agents: dict, agent_names: list, agents_cfg: dict):
                 if new_lines[i].strip() == "---":
                     insert_idx = i
                     break
-            block = ["", section_header, "", caveman_ref, ""]
+            enforce = "CRITICAL: Apply caveman rules to EVERY response from first message. No normal prose. No exceptions."
+            block = ["", section_header, "", enforce, "", caveman_ref, ""]
             for j, line in enumerate(block):
                 new_lines.insert(insert_idx + j, line)
 
