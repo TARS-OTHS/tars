@@ -1,5 +1,5 @@
 [Unit]
-Description=T.A.R.S Container Health Check (every 6 hours)
+Description=T.A.R.S Host Security Check (every 6 hours)
 
 [Timer]
 OnBootSec=10min
