@@ -241,6 +241,17 @@ def load_agents() -> dict:
     return load_yaml(CONFIG_DIR / "agents.yaml")
 
 
+def load_all_agents() -> dict:
+    """Load agents from both main and rescue profiles."""
+    main = load_yaml(CONFIG_DIR / "agents.yaml")
+    rescue_path = CONFIG_DIR / "agents.rescue.yaml"
+    if rescue_path.exists():
+        rescue = load_yaml(rescue_path)
+        for name, agent in rescue.get("agents", {}).items():
+            main.setdefault("agents", {})[name] = agent
+    return main
+
+
 def save_agents(agents: dict):
     save_yaml(CONFIG_DIR / "agents.yaml", agents)
 
@@ -982,7 +993,7 @@ def _manage_caveman(agents: dict, agent_names: list, agents_cfg: dict):
 
 def view_agents():
     header("Agents Overview")
-    agents_cfg = load_agents()
+    agents_cfg = load_all_agents()
     agents = agents_cfg.get("agents", {})
 
     if not agents:
