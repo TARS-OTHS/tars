@@ -916,9 +916,9 @@ class DiscordBot:
         import asyncio
         import os
         import shlex
-        env = {**os.environ, "TERM": "dumb"}
+        tars_home = os.environ.get("TARS_HOME", "/opt/tars")
+        env = {**os.environ, "TERM": "dumb", "TARS_HOME": tars_home}
         try:
-            tars_home = os.environ.get("TARS_HOME", "/opt/tars")
             parts = shlex.split(command)
             if not parts[0].startswith("/"):
                 parts[0] = os.path.join(tars_home, parts[0])
@@ -1012,8 +1012,10 @@ class DiscordBot:
             async def _skill_cmd(interaction: discord.Interaction, **kwargs):
                 await interaction.response.defer()
                 if _command:
+                    logger.debug(f"Skill {_skill_name}: direct command path → {_command}")
                     await DiscordBot._run_direct_command(interaction, _command)
                     return
+                logger.debug(f"Skill {_skill_name}: LLM path (no command field)")
                 await _connector.emit(IncomingMessage(
                     connector="discord",
                     channel_id=str(interaction.channel_id),

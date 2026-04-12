@@ -9,6 +9,7 @@ from src.core.tools import tool
 VALID_LEVELS = ("off", "lite", "full", "ultra")
 SECTION_HEADER = "## Communication Style"
 CAVEMAN_PATTERN = re.compile(r"See @.*CAVEMAN\.md.*active \w+ mode\.")
+ENFORCE_PATTERN = re.compile(r"CRITICAL: Apply caveman rules to EVERY response")
 
 
 def _resolve_claude_md(agent_id: str) -> str | None:
@@ -73,21 +74,29 @@ async def caveman(ctx: ToolContext, level: str = "") -> str:
 
     lines = content.splitlines()
 
-    # Remove existing caveman section
+    # Remove all caveman-related lines (section headers, enforcement, references)
     new_lines = []
-    skip_section = False
     for line in lines:
         if line.strip() == SECTION_HEADER:
-            skip_section = True
             continue
-        if skip_section:
-            if CAVEMAN_PATTERN.search(line):
-                skip_section = False
-                continue
-            if line.strip() == "":
-                continue
-            skip_section = False
+        if CAVEMAN_PATTERN.search(line):
+            continue
+        if ENFORCE_PATTERN.search(line):
+            continue
         new_lines.append(line)
+
+    # Collapse runs of 3+ blank lines down to 2
+    collapsed = []
+    blank_run = 0
+    for line in new_lines:
+        if line.strip() == "":
+            blank_run += 1
+            if blank_run <= 2:
+                collapsed.append(line)
+        else:
+            blank_run = 0
+            collapsed.append(line)
+    new_lines = collapsed
 
     # Strip trailing blank lines
     while new_lines and new_lines[-1].strip() == "":
