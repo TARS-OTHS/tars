@@ -61,4 +61,11 @@ if [ -n "${TARS_OVERLAY:-}" ]; then
     echo "[sync] Agent tmp dirs ensured at $TARS_OVERLAY/tmp/"
 fi
 
+# --- Fix ownership if run as root ---
+if [ "$(id -u)" -eq 0 ]; then
+    echo "[sync] Ran as root — fixing ownership to tars:tars"
+    chown -R tars:tars "$REPO_ROOT"
+    [ -n "${TARS_OVERLAY:-}" ] && chown -R tars:tars "$TARS_OVERLAY"
+fi
+
 echo "[sync] Done"
