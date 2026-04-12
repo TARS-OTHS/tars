@@ -548,14 +548,12 @@ def step_agent(state: dict):
     display_name = ask("Display name (shown in Discord)", agent_name.upper())
     description = ask("One-line description", "Primary agent")
     model = ask_choice("LLM model", ["sonnet", "opus"], default="sonnet")
-    mentions_only = ask_yn("Only respond when @mentioned?", default=True)
 
     state["agent"] = {
         "name": agent_name,
         "display_name": display_name,
         "description": description,
         "model": model,
-        "mentions": mentions_only,
     }
 
     # Agent personality
@@ -563,6 +561,11 @@ def step_agent(state: dict):
     info("Optionally set a personality for the agent's CLAUDE.md.")
     personality = ask("Personality (e.g., 'concise and direct', 'friendly and detailed')", "concise and direct")
     state["agent"]["personality"] = personality
+
+    # Routing
+    print()
+    bot_name = state.get("bot_name", "main")
+    state["agent"]["routing"] = _ask_routing(bot_name)
 
     ok(f"Agent: {display_name} ({model})")
 
@@ -702,13 +705,7 @@ def step_generate(state: dict):
                 "tools": "all",
                 "skills": "all",
                 "disallow_builtins": ["Edit", "Write", "Bash", "MultiEdit"],
-                "routing": {
-                    "discord": {
-                        "account": bot_name,
-                        "channels": [],
-                        "mentions": agent["mentions"],
-                    }
-                },
+                "routing": agent["routing"],
             }
         }
     }
@@ -865,14 +862,8 @@ def step_ops_instance(state: dict):
     else:
         warn("No token — add it later via vault-manage.py")
 
-    # Channel restriction
-    channels = []
-    if ask_yn("Restrict to specific channel IDs?", default=False):
-        while True:
-            ch = ask("Channel ID (empty to stop)")
-            if not ch:
-                break
-            channels.append(ch)
+    # Routing
+    routing = _ask_routing(bot_name, default_mentions=True)
 
     agent_dir = overlay / "agents" / agent_name
 
@@ -887,15 +878,7 @@ def step_ops_instance(state: dict):
                 "llm": {"provider": "claude_code", "model": model},
                 "tools": "all",
                 "skills": "all",
-                "routing": {
-                    "discord": {
-                        "account": bot_name,
-                        "channels": channels,
-                        "categories": [],
-                        "guilds": [],
-                        "mentions": True,
-                    }
-                },
+                "routing": routing,
             }
         }
     }
@@ -1243,6 +1226,9 @@ def _add_agent(state: dict):
 
     agent_dir = overlay / "agents" / agent_name
 
+    # Routing
+    routing = _ask_routing(bot_account)
+
     agents_cfg.setdefault("agents", {})[agent_name] = {
         "display_name": display_name,
         "description": description,
@@ -1251,13 +1237,7 @@ def _add_agent(state: dict):
         "tools": "all",
         "skills": "all",
         "disallow_builtins": ["Edit", "Write", "Bash", "MultiEdit"],
-        "routing": {
-            "discord": {
-                "account": bot_account,
-                "channels": [],
-                "mentions": True,
-            }
-        },
+        "routing": routing,
     }
 
     agents_path.write_text(yaml.dump(agents_cfg, default_flow_style=False, sort_keys=False))
@@ -1355,6 +1335,58 @@ def _add_bot(state: dict):
 # ==========================================================================
 # File writers
 # ==========================================================================
+
+def _ask_routing(bot_account: str, default_mentions: bool = True) -> dict:
+    """Prompt for agent routing config and return the routing dict."""
+    mentions_only = ask_yn("Only respond when @mentioned?", default=default_mentions)
+
+    print()
+    info("How should this agent listen for messages?")
+    print(f"    1) All channels {DIM}(wildcard — responds everywhere){RESET}")
+    print(f"    2) Specific channels {DIM}(by channel ID){RESET}")
+    print(f"    3) By category {DIM}(all channels in a Discord category){RESET}")
+    print(f"    4) Specific channels + category")
+    scope = ask_choice("Scope", ["1", "2", "3", "4"], default="1")
+
+    channels = []
+    categories = []
+    if scope in ("2", "4"):
+        info("Enter channel IDs (one per line, empty to stop):")
+        while True:
+            ch = ask("Channel ID (empty to stop)")
+            if not ch:
+                break
+            channels.append(ch)
+    if scope in ("3", "4"):
+        info("Enter category IDs (one per line, empty to stop):")
+        while True:
+            cat = ask("Category ID (empty to stop)")
+            if not cat:
+                break
+            categories.append(cat)
+
+    guilds = []
+    if ask_yn("Restrict to specific server/guild?", default=False):
+        while True:
+            g = ask("Guild ID (empty to stop)")
+            if not g:
+                break
+            guilds.append(g)
+
+    routing = {
+        "discord": {
+            "account": bot_account,
+            "channels": channels,
+            "mentions": mentions_only,
+        }
+    }
+    if categories:
+        routing["discord"]["categories"] = categories
+    if guilds:
+        routing["discord"]["guilds"] = guilds
+
+    return routing
+
 
 def _write_yaml(path: Path, data: dict, state: dict):
     if path.exists() and state.get("vault_existed"):
