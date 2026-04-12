@@ -49,7 +49,7 @@ def _resolve_agent_id() -> str:
     project_dir = os.environ.get("TARS_PROJECT_DIR", "")
     if project_dir:
         return Path(project_dir).name
-    return MCP_AGENT_ID
+    return "mcp-agent"
 
 
 MCP_AGENT_ID = _resolve_agent_id()
