@@ -41,6 +41,20 @@ logging.basicConfig(
 logger = logging.getLogger("mcp-server")
 
 
+def _resolve_agent_id() -> str:
+    """Derive agent ID from environment. Falls back to 'mcp-agent'."""
+    agent_id = os.environ.get("TARS_AGENT_ID")
+    if agent_id:
+        return agent_id
+    project_dir = os.environ.get("TARS_PROJECT_DIR", "")
+    if project_dir:
+        return Path(project_dir).name
+    return "mcp-agent"
+
+
+MCP_AGENT_ID = _resolve_agent_id()
+
+
 # --- HITL via Discord API (MCP server can't use connector directly) ---
 
 class MCPHitlGate:
@@ -306,11 +320,11 @@ def _make_middleware_handler(
 
         # --- Rate limit check ---
         if rate_limiter:
-            rl_check = rate_limiter.check("mcp-agent", _name)
+            rl_check = rate_limiter.check(MCP_AGENT_ID, _name)
             if not rl_check["allowed"]:
                 if audit:
                     audit.log_rate_limit(
-                        "mcp-agent", _name,
+                        MCP_AGENT_ID, _name,
                         rl_check.get("count", 0),
                         rl_check.get("limit", 0),
                         rl_check.get("window", ""),
@@ -325,19 +339,19 @@ def _make_middleware_handler(
             if hitl_result["status"] != "approved":
                 if audit:
                     audit.log_hitl(
-                        hitl_result.get("hitl_id", "?"), "mcp-agent", _name,
+                        hitl_result.get("hitl_id", "?"), MCP_AGENT_ID, _name,
                         hitl_result["status"], hitl_result.get("approver"),
                     )
                 return f"HITL: Tool '{_name}' was {hitl_result['status']}."
 
         # Record for rate limiting BEFORE execution (prevents TOCTOU race)
         if rate_limiter:
-            rate_limiter.record("mcp-agent", _name)
+            rate_limiter.record(MCP_AGENT_ID, _name)
 
         # --- Execute tool ---
         _project_dir_raw = os.environ.get("TARS_PROJECT_DIR")
         _project_dir = str(Path(_project_dir_raw).resolve()) if _project_dir_raw else None
-        ctx = ToolContext(agent_id="mcp-agent", vault=vault, memory=memory,
+        ctx = ToolContext(agent_id=MCP_AGENT_ID, vault=vault, memory=memory,
                           project_dir=_project_dir)
         try:
             result = await _td.func(ctx, **kwargs)
@@ -346,14 +360,14 @@ def _make_middleware_handler(
             # Audit log
             if audit:
                 audit.log_tool(
-                    "mcp-agent", _name, kwargs,
+                    MCP_AGENT_ID, _name, kwargs,
                     str(result)[:200] if result else "", True, duration_ms,
                     hitl={"status": hitl_result["status"], "approver": hitl_result.get("approver")} if hitl_result else None,
                 )
 
             # SQLite tool log
             if tool_log_db:
-                _log_tool_to_db(tool_log_db, "mcp-agent", _name, kwargs,
+                _log_tool_to_db(tool_log_db, MCP_AGENT_ID, _name, kwargs,
                                 str(result)[:2000] if result else "", True, duration_ms)
 
             logger.info(f"Tool {_name} completed in {duration_ms}ms")
@@ -371,7 +385,7 @@ def _make_middleware_handler(
                     )
                     logger.warning(f"Injection detected in {_name} output: score={score} patterns={matched}")
                     if audit:
-                        audit.log_content_safety("mcp-agent", score, _name, matched)
+                        audit.log_content_safety(MCP_AGENT_ID, score, _name, matched)
                     if alerter:
                         alerter.send_bg(alert_msg)
 
@@ -395,9 +409,9 @@ def _make_middleware_handler(
             duration_ms = int((time.time() - start_time) * 1000)
             logger.error(f"Tool {_name} failed: {e}", exc_info=True)
             if audit:
-                audit.log_tool("mcp-agent", _name, kwargs, str(e), False, duration_ms)
+                audit.log_tool(MCP_AGENT_ID, _name, kwargs, str(e), False, duration_ms)
             if tool_log_db:
-                _log_tool_to_db(tool_log_db, "mcp-agent", _name, kwargs,
+                _log_tool_to_db(tool_log_db, MCP_AGENT_ID, _name, kwargs,
                                 str(e)[:2000], False, duration_ms)
             raise
 
