@@ -7,16 +7,21 @@ TARS_HOME="${TARS_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
 TARS_OVERLAY="${TARS_OVERLAY:-}"
 TARS_VENV="$TARS_HOME/.venv/bin/python"
 
-# Load channel config — overlay takes priority over core
-[ -f "$TARS_HOME/config/channels.env" ] && source "$TARS_HOME/config/channels.env"
-[ -n "$TARS_OVERLAY" ] && [ -f "$TARS_OVERLAY/config/channels.env" ] && source "$TARS_OVERLAY/config/channels.env"
-ALERT_CHANNEL="${TARS_ALERT_CHANNEL:-}"
+# Read alert channel from config.yaml (single source of truth)
+_resolve_alert_channel() {
+    local cfg=""
+    [ -n "$TARS_OVERLAY" ] && [ -f "$TARS_OVERLAY/config/config.yaml" ] && cfg="$TARS_OVERLAY/config/config.yaml"
+    [ -z "$cfg" ] && [ -f "$TARS_HOME/config/config.yaml" ] && cfg="$TARS_HOME/config/config.yaml"
+    [ -n "$cfg" ] && "$TARS_VENV" -c "
+import yaml, sys
+c = yaml.safe_load(open('$cfg'))
+print(c.get('security', {}).get('alert_channel', ''), end='')
+" 2>/dev/null || echo -n ""
+}
+ALERT_CHANNEL="${TARS_ALERT_CHANNEL:-$(_resolve_alert_channel)}"
 
-# Resolve secrets.enc — overlay takes priority
+# Secrets always live in core vault
 _SECRETS_ENC="$TARS_HOME/config/secrets.enc"
-if [ -n "$TARS_OVERLAY" ] && [ -f "$TARS_OVERLAY/config/secrets.enc" ]; then
-    _SECRETS_ENC="$TARS_OVERLAY/config/secrets.enc"
-fi
 
 _get_bot_token() {
     "$TARS_VENV" -c "
@@ -24,7 +29,7 @@ from src.vault.fernet import FernetVault
 from pathlib import Path
 v = FernetVault('$_SECRETS_ENC')
 v.unlock(Path.home().joinpath('.config/tars-vault-key').read_text().strip())
-print(v.get('discord-token') or '', end='')
+print(v.get('active-discord-token') or v.get('discord-token') or '', end='')
 " 2>/dev/null
 }
 
