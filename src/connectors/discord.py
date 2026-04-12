@@ -343,27 +343,21 @@ class DiscordBot:
             f"(guilds: {len(self.client.guilds)})"
         )
 
-        # Sync slash commands to each guild (instant) and globally (for DMs).
-        # Guild-specific commands appear immediately. Global commands can take
-        # up to 1 hour but enable DM usage. copy_global_to() is used once per
-        # guild to populate the guild command set, then the global set is
-        # cleared to prevent duplicates in servers.
+        # Clear any stale guild-specific commands, then sync global only.
+        # Global commands work everywhere (servers + DMs). Guild commands
+        # would duplicate them, so we remove any that exist from prior runs.
         for guild in self.client.guilds:
             try:
                 guild_obj = discord.Object(id=guild.id)
-                self.tree.copy_global_to(guild=guild_obj)
-                synced = await self.tree.sync(guild=guild_obj)
-                logger.info(
-                    f"[{self.account_name}] Synced {len(synced)} commands to guild "
-                    f"{guild.name!r} ({guild.id})"
-                )
+                self.tree.clear_commands(guild=guild_obj)
+                await self.tree.sync(guild=guild_obj)
+                logger.info(f"[{self.account_name}] Cleared guild commands for {guild.name!r} ({guild.id})")
             except Exception as e:
-                logger.error(f"[{self.account_name}] Failed to sync commands to guild {guild.id}: {e}")
+                logger.error(f"[{self.account_name}] Failed to clear guild commands for {guild.id}: {e}")
 
-        # Sync global commands for DM support (takes up to 1 hour to propagate)
         try:
             synced = await self.tree.sync()
-            logger.info(f"[{self.account_name}] Synced {len(synced)} global commands (DMs enabled)")
+            logger.info(f"[{self.account_name}] Synced {len(synced)} global commands (servers + DMs)")
         except Exception as e:
             logger.error(f"[{self.account_name}] Failed to sync global commands: {e}")
 
@@ -855,13 +849,13 @@ class DiscordBot:
                 for guild in target_guilds:
                     try:
                         guild_obj = discord.Object(id=guild.id)
-                        self.tree.copy_global_to(guild=guild_obj)
-                        synced = await self.tree.sync(guild=guild_obj)
-                        lines.append(f"✓ {guild.name}: {len(synced)} commands")
+                        self.tree.clear_commands(guild=guild_obj)
+                        await self.tree.sync(guild=guild_obj)
+                        lines.append(f"✓ {guild.name}: guild commands cleared")
                     except Exception as ge:
                         lines.append(f"✗ {guild.name}: {ge}")
                 synced_global = await self.tree.sync()
-                lines.append(f"✓ Global: {len(synced_global)} commands (DMs enabled)")
+                lines.append(f"✓ Global: {len(synced_global)} commands (servers + DMs)")
                 await interaction.followup.send(
                     "**Sync results:**\n" + "\n".join(lines), ephemeral=True
                 )
