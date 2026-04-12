@@ -184,7 +184,7 @@ tars/
 │   └── timers/                — systemd timer+service files for scheduled tasks
 ├── scripts/
 │   ├── test-tools.py          — e2e tests across tool categories
-│   ├── health-audit.sh        — automated health checks
+│   ├── health-audit.sh        — full system audit (timer + on-demand via /system-audit)
 │   ├── monitor-container-health.sh  — Docker security baseline
 │   ├── monitor-integrity.sh   — file integrity SHA256
 │   ├── monitor-exposure.sh    — public port scanning
@@ -783,7 +783,7 @@ All scheduled tasks use systemd timers (`Persistent=true` — catches up missed 
 |-------|----------|--------|---------|--------|
 | tars-memory-context | Every 30 min | regen-memory-context.sh | Regenerates `MEMORY_CONTEXT.md` with memory stats and service health snapshot for agent context injection | No |
 | tars-memory-decay | Daily 03:00 | memory-decay.sh | Applies confidence decay (0.0108/day), archives memories below threshold, purges archives older than 90 days | On purge |
-| tars-health-audit | Every 6h | health-audit.sh | Checks service status, disk/RAM/swap usage, zombie processes, cleans temp files | On warning/critical |
+| tars-health-audit | Every 6h | health-audit.sh | Full system audit: services, timers, resources, security, memory, vault, MCP, tools, databases, git state. Also available on-demand via `/system-audit` slash command (runs directly, no LLM) | Heartbeat on success, alert on issues |
 | tars-integrity | Every 12h | monitor-integrity.sh | SHA256 checksums of critical files vs baseline — detects unauthorized changes | On mismatch |
 | tars-exposure | Daily 02:00 | monitor-exposure.sh | Scans for unexpected public-facing ports | On unexpected port |
 | tars-container-health | Every 6h | monitor-container-health.sh | Checks Docker containers for security drift (capabilities, non-root, no-new-privileges) | On drift |

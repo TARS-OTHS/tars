@@ -181,6 +181,7 @@ class Skill:
     prompt: str
     tools: list[str] = field(default_factory=list)
     parameters: list[SkillParam] = field(default_factory=list)
+    command: str | None = None
 
 
 # === Module interfaces ===

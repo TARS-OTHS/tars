@@ -79,6 +79,7 @@ def _load_skill_file(path: Path) -> Skill:
         prompt=data.get("prompt", ""),
         tools=data.get("tools", []),
         parameters=params,
+        command=data.get("command"),
     )
 
 

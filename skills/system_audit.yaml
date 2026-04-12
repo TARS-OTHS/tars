@@ -1,17 +1,3 @@
 name: system_audit
-description: Run a full system health audit — services, timers, resources, security, network, application health
-parameters:
-  - name: config_path
-    type: string
-    required: false
-    description: Path to health-config.yaml (defaults to $TARS_OVERLAY/config/health-config.yaml)
-prompt: |
-  Run a system health audit using the system_audit tool.
-  Config path: {config_path}
-
-  After the audit completes:
-  1. Present the full report as-is
-  2. If any FAIL or WARN items exist, summarise the top issues and suggest concrete fixes
-  3. If everything passes, confirm the system is healthy — keep it brief
-tools:
-  - system_audit
+description: Run a full system health audit — services, timers, resources, security, memory, vault, MCP, tools, git state
+command: scripts/health-audit.sh --report
