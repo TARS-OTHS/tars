@@ -798,6 +798,8 @@ The team roster is at `config/team.json`. User context is injected before each m
         "TARS_PROJECT_DIR": str(agent_dir),
         "TARS_OVERLAY": str(overlay),
     }
+    if state.get("tars_oths"):
+        mcp_env["TARS_OTHS"] = state["tars_oths"]
     mcp_json = {
         "mcpServers": {
             "tars-tools": {
@@ -942,6 +944,8 @@ def step_ops_instance(state: dict):
         "TARS_PROJECT_DIR": str(agent_dir),
         "TARS_OVERLAY": str(overlay),
     }
+    if state.get("tars_oths"):
+        mcp_env["TARS_OTHS"] = state["tars_oths"]
     mcp_json = {
         "mcpServers": {
             "tars-tools": {
@@ -1319,6 +1323,8 @@ Use your MCP tools for memory — do NOT use curl or HTTP calls.
         "TARS_PROJECT_DIR": str(agent_dir),
         "TARS_OVERLAY": str(overlay),
     }
+    if state.get("tars_oths"):
+        mcp_env["TARS_OTHS"] = state["tars_oths"]
     mcp_json = {
         "mcpServers": {
             "tars-tools": {
