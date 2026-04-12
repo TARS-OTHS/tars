@@ -605,9 +605,9 @@ Run at ${TIMESTAMP}"
 FULL_REPORT="${HEADER}$(echo -e "$REPORT")"
 
 if [ "$REPORT_MODE" = "true" ]; then
-    # Full report — post to Discord and stdout
+    # Full report — post to Discord ops-alert channel
     send_report "$FULL_REPORT" "health-audit-$(date -u +%Y%m%d-%H%M).txt"
-    echo "$FULL_REPORT"
+    echo "${STATUS} — ${PASSED} passed, ${WARNED} warnings, ${FAILED} failures. Posted to #ops-alert."
 else
     # Timer mode: alert on issues, heartbeat on success
     if [ -n "$ISSUES" ]; then
