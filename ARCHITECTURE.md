@@ -252,6 +252,79 @@ agents:
         channels: []              # All channels (wildcard)
 ```
 
+### Communication Style (Caveman Mode)
+
+Agents can use a terse communication style ("caveman mode") with four levels:
+
+| Level | Behavior |
+|-------|----------|
+| off | Normal prose |
+| lite | Drop pleasantries and hedging. Sentences intact. |
+| full | Drop articles and filler. Fragments OK. |
+| ultra | Maximum compression. Telegraphic. |
+
+The style definition lives in `config/CAVEMAN.md` (shipped with Core, copied to overlay during setup). Each agent's CLAUDE.md references it with a level:
+
+```markdown
+## Communication Style
+See @../../config/CAVEMAN.md — active full mode.
+```
+
+Manage via `settings.py` → Agents → Caveman mode, or edit CLAUDE.md directly. Remove the reference to disable.
+
+### Routing
+
+Routing determines which agent handles an incoming message. Each connector has its own routing namespace (`routing.discord`, `routing.telegram`, etc.) with connector-specific keys.
+
+**Discord routing — scope vs filters:**
+
+Routing has two layers: **scope** (which channels to listen in) and **filters** (additional constraints applied on top).
+
+*Scope* (priority-based — first match wins):
+
+| Priority | Config Key | Effect |
+|----------|-----------|--------|
+| 1 | `channels: [id, ...]` | Exact channel ID match — highest priority |
+| 2 | `categories: [id, ...]` | All channels within a Discord category |
+| 3 | `channels: []` (empty) | Wildcard — all channels |
+| 4 | DM fallback (implicit) | Any agent bound to the bot handles DMs |
+
+*Filters* (applied independently of scope):
+
+| Filter | Config Key | Effect |
+|--------|-----------|--------|
+| **Bot account** | `account` | Namespace — each bot routes independently. Not optional. |
+| **Guild/Server** | `guilds: [id, ...]` | Restricts to specific servers. Empty = all servers. |
+| **Mentions** | `mentions: true/false` | When true, only respond if @mentioned or in a DM. |
+
+Multiple agents **can** match the same message if routing rules overlap — all matching agents receive it.
+
+**Examples:**
+
+```yaml
+# Agent responds to all channels on bot "main", only when @mentioned
+routing:
+  discord:
+    account: main
+    channels: []
+    mentions: true
+
+# Agent scoped to a specific Discord category
+routing:
+  discord:
+    account: assistant
+    categories: ["1234567890"]
+    mentions: false
+
+# Agent locked to one channel in one server
+routing:
+  discord:
+    account: ops
+    channels: ["9876543210"]
+    guilds: ["1111222233"]
+    mentions: true
+```
+
 **LLM defaults** can include `mcp_config` to wire external MCP servers for all agents:
 
 ```yaml
