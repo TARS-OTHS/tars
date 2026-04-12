@@ -357,7 +357,7 @@ def _build_mcp_json(servers: dict, agent_env: dict | None = None) -> dict:
             if env:
                 entry["env"] = env
         else:
-            entry = {"url": cfg["url"]}
+            entry = {"type": "http", "url": cfg["url"]}
             if cfg.get("headers"):
                 entry["headers"] = cfg["headers"]
         mcp_servers[name] = entry
